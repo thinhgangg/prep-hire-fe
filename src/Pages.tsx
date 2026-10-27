@@ -1,3 +1,5 @@
+import { createStoredSession, createCustomSession, submitInterviewAnswer, getEvidenceSummary } from './services/interviewApi'
+import { fetchRealJobs, DbJob } from './services/jobApi'
 import { useEffect, useRef, useState } from 'react'
 import { Activity, ArrowDownToLine, ArrowLeft, ArrowRight, BarChart3, Bell, BriefcaseBusiness, CalendarDays, Camera, Check, CheckCircle2, ChevronDown, Circle, CircleHelp, Clock3, Download, FileText, Filter, Headphones, Mail, MapPin, Mic, MicOff, MoreHorizontal, Plus, Search, Settings, ShieldCheck, Sparkles, Square, Star, Target, TrendingUp, Users, Video, VideoOff, Wifi, X } from 'lucide-react'
 import type { Page } from './App'
@@ -46,7 +48,77 @@ const jobCards=[
   {title:'Product Designer',dept:'Product & Design',place:'Remote',count:9,days:7,color:'#c87548',skills:['Figma','UX Research','UI Design']},
   {title:'Data Analyst',dept:'Data & Insights',place:'Hà Nội',count:11,days:21,color:'#4c729b',skills:['SQL','Python','Tableau']},
 ]
-export function JobsPage({go}:Props){return <Shell page="jobs" go={go}><PageHeader title="Công việc" desc="Quản lý các vị trí tuyển dụng và yêu cầu đánh giá." action={<button className="primary"><Plus/> Tạo công việc</button>}/><section className="jobs-empty"><span><BriefcaseBusiness/></span><h2>Chưa có công việc nào</h2><p>Các vị trí tuyển dụng được tạo sẽ xuất hiện tại đây.<br/>Hãy tạo công việc đầu tiên để bắt đầu quản lý ứng viên.</p><button className="primary"><Plus/> Tạo công việc đầu tiên</button></section></Shell>}
+export function JobsPage({ go }: Props) {
+  const [jobList, setJobList] = useState<DbJob[]>([])
+  const [loading, setLoading] = useState(true)
+  const [query, setQuery] = useState('')
+
+  useEffect(() => {
+    fetchRealJobs().then(res => {
+      setJobList(res)
+      setLoading(false)
+    })
+  }, [])
+
+  const filtered = jobList.filter(j =>
+    j.title.toLowerCase().includes(query.toLowerCase()) ||
+    j.company.toLowerCase().includes(query.toLowerCase()) ||
+    j.location.toLowerCase().includes(query.toLowerCase())
+  )
+
+  return (
+    <Shell page="jobs" go={go}>
+      <PageHeader
+        title="Công việc"
+        desc={`Danh sách ${jobList.length} vị trí tuyển dụng thực tế đang có trong kho dữ liệu.`}
+        action={<button className="primary" onClick={() => go('start')}><Plus /> Tạo phỏng vấn mới</button>}
+      />
+      <div style={{ marginBottom: '20px' }}>
+        <div className="job-search" style={{ maxWidth: '480px' }}>
+          <Search />
+          <input
+            placeholder="Tìm kiếm công việc, công ty hoặc địa điểm..."
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+          />
+        </div>
+      </div>
+      {loading ? (
+        <div style={{ padding: '40px', textAlign: 'center', color: '#6b7280' }}>
+          Đang nạp danh sách công việc từ kho dữ liệu...
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
+          {filtered.map(j => (
+            <div key={j.id} className="white-card" style={{ padding: '18px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', borderRadius: '12px', border: '1px solid #e5e7eb' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '10px' }}>
+                  <span className="job-icon" style={{ background: j.accent, width: '42px', height: '42px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 'bold' }}>
+                    {j.title.split(' ').slice(0, 2).map(x => x[0]).join('')}
+                  </span>
+                  <div>
+                    <h4 style={{ margin: 0, fontSize: '15px' }}>{j.title}</h4>
+                    <small style={{ color: '#6b7280' }}>{j.company} · {j.location}</small>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', margin: '12px 0' }}>
+                  {j.skills.map(s => (
+                    <span key={s} style={{ background: '#f3f4f6', padding: '3px 8px', borderRadius: '4px', fontSize: '12px', color: '#374151' }}>
+                      {s}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <button className="outline" style={{ marginTop: '12px', width: '100%', cursor: 'pointer' }} onClick={() => go('start')}>
+                Phỏng vấn vị trí này
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </Shell>
+  )
+}
 
 export function ReportsPage({go}:Props){return <Shell page="reports" go={go}><PageHeader title="Báo cáo" desc="Tổng hợp chất lượng ứng viên và hiệu quả tuyển dụng." action={<button className="outline"><Download/> Xuất báo cáo</button>}/><div className="report-overview"><section><span className="pill"><TrendingUp/> HIỆU SUẤT TUYỂN DỤNG</span><h2>Chất lượng ứng viên<br/>tăng <em>8.4%</em></h2><p>Dựa trên 42 buổi phỏng vấn trong 30 ngày qua.</p><div className="line-chart"><svg viewBox="0 0 500 120" preserveAspectRatio="none"><defs><linearGradient id="area" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#528166" stopOpacity=".3"/><stop offset="1" stopColor="#528166" stopOpacity="0"/></linearGradient></defs><path d="M0,92 C50,88 75,72 112,78 S180,58 220,62 S280,35 330,45 S410,22 500,15 L500,120 L0,120Z" fill="url(#area)"/><path d="M0,92 C50,88 75,72 112,78 S180,58 220,62 S280,35 330,45 S410,22 500,15" fill="none" stroke="#426f57" strokeWidth="3"/></svg><div><span>01/09</span><span>08/09</span><span>15/09</span><span>22/09</span><span>29/09</span></div></div></section><aside><h3>Phân bổ đánh giá</h3><div className="donut"><div><b>42</b><small>ỨNG VIÊN</small></div></div><ul><li><i className="excellent"></i><span>Phù hợp cao</span><b>38%</b></li><li><i className="normal"></i><span>Cần xem xét</span><b>45%</b></li><li><i className="low"></i><span>Chưa phù hợp</span><b>17%</b></li></ul></aside></div><section className="data-panel report-list"><div className="panel-title"><div><h2>Báo cáo gần đây</h2><p>Đánh giá chi tiết từ AI</p></div><button className="text-btn">Xem tất cả <ArrowRight/></button></div>{people.slice(0,3).map((p,i)=><div className="report-row" key={p.name}><div className="person"><i className={p.color}>{p.initial}</i><p><b>{p.name}</b><small>{p.role}</small></p></div><div className="mini-scores"><span><small>CHUYÊN MÔN</small><b>{[88,82,76][i]}</b></span><span><small>GIAO TIẾP</small><b>{[81,75,84][i]}</b></span><span><small>PHÙ HỢP</small><b>{[90,78,80][i]}</b></span></div><strong>{p.score||82}<small>/100</small></strong><button className="outline" onClick={()=>go('report')}>Xem báo cáo</button></div>)}</section></Shell>}
 
@@ -67,17 +139,341 @@ export function DeviceCheckPage({go}:Props){
  return <div className="device-page"><header><button className="sub-logo" onClick={()=>go('dashboard')}><i><Sparkles/></i>Interviewly</button><span>Kiểm tra thiết bị <small>· Bước cuối trước khi bắt đầu</small></span><button className="outline"><CircleHelp/> Cần hỗ trợ?</button></header><main><div className="device-intro"><span className="pill"><ShieldCheck/> KIỂM TRA HỆ THỐNG</span><h1>Sẵn sàng cho buổi phỏng vấn?</h1><p>Hãy đảm bảo camera, microphone và kết nối của bạn hoạt động ổn định.</p></div><div className="device-grid"><section><div className={`camera-preview ${!camera?'off':''}`}>{camera?<><div className="person-silhouette"><span></span></div><span className="live"><i></i> Camera đang hoạt động</span></>:<div className="camera-off"><VideoOff/><p>Camera đang tắt</p></div>}</div><div className="device-controls"><button onClick={()=>setMic(!mic)} className={!mic?'disabled':''}>{mic?<Mic/>:<MicOff/>}<span>{mic?'Microphone bật':'Microphone tắt'}</span></button><button onClick={()=>setCamera(!camera)} className={!camera?'disabled':''}>{camera?<Camera/>:<VideoOff/>}<span>{camera?'Camera bật':'Camera tắt'}</span></button></div></section><aside className="checks-card"><h2>Kiểm tra thiết bị</h2><p>Cho phép trình duyệt truy cập các thiết bị bên dưới.</p><div className="check-item"><span><Camera/></span><p><b>Camera</b><small>HD Webcam</small></p><em className={camera?'ok':'bad'}>{camera?<><Check/> Hoạt động</>:<>Cần bật</>}</em></div><div className="check-item"><span><Mic/></span><p><b>Microphone</b><small>Default Microphone</small></p><div className="audio-meter">{[1,2,3,4,5,6,7,8].map(x=><i key={x} style={{height:mic?`${6+(x%5)*3}px`:'3px'}}></i>)}</div><em className={mic?'ok':'bad'}>{mic?<><Check/> Hoạt động</>:<>Cần bật</>}</em></div><div className="check-item"><span><Wifi/></span><p><b>Kết nối Internet</b><small>24 Mbps · Ổn định</small></p><em className="ok"><Check/> Tốt</em></div><div className="privacy-box"><ShieldCheck/><p><b>Quyền riêng tư của bạn</b><span>Camera và microphone chỉ được sử dụng trong phiên phỏng vấn để phục vụ đánh giá.</span></p></div><label className="consent"><input type="checkbox" checked={agree} onChange={e=>setAgree(e.target.checked)}/><span>Tôi đồng ý cho phép ghi âm và ghi hình trong buổi phỏng vấn.</span></label><button className="primary full" disabled={!agree||!camera||!mic} onClick={()=>go('room')}>Bắt đầu phỏng vấn <ArrowRight/></button><small className="ready-hint">Thời lượng dự kiến: 30 phút</small></aside></div></main></div>
 }
 
-export function InterviewRoom({go}:Props){
- const [mic,setMic]=useState(true),[cam,setCam]=useState(true),[recording,setRecording]=useState(false),[uploading,setUploading]=useState(false),[error,setError]=useState(''),[secs,setSecs]=useState(0)
- const recorderRef=useRef<MediaRecorder|null>(null),streamRef=useRef<MediaStream|null>(null),chunksRef=useRef<Blob[]>([])
- useEffect(()=>{const t=setInterval(()=>setSecs(s=>s+1),1000);return()=>clearInterval(t)},[])
- useEffect(()=>()=>streamRef.current?.getTracks().forEach(track=>track.stop()),[])
- const fmt=`${String(Math.floor(secs/60)).padStart(2,'0')}:${String(secs%60).padStart(2,'0')}`
- const startRecording=async()=>{try{setError('');const stream=await navigator.mediaDevices.getUserMedia({audio:true});streamRef.current=stream;chunksRef.current=[];const preferred=['audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus'];const mimeType=preferred.find(type=>MediaRecorder.isTypeSupported(type));const recorder=new MediaRecorder(stream,mimeType?{mimeType}:undefined);recorderRef.current=recorder;recorder.ondataavailable=event=>{if(event.data.size)chunksRef.current.push(event.data)};recorder.onstop=async()=>{setUploading(true);try{const blob=new Blob(chunksRef.current,{type:recorder.mimeType||'audio/webm'});const job=await createSttJob(blob,'Câu hỏi: Sự khác nhau giữa REST và GraphQL. Thuật ngữ: REST, REST API, GraphQL, API, endpoint, client-server.');sessionStorage.setItem(STT_JOB_STORAGE_KEY,job.id);sessionStorage.removeItem(STT_RESULT_STORAGE_KEY);go('processing')}catch(reason){setError(reason instanceof Error?reason.message:'Không thể gửi audio');setUploading(false)}finally{stream.getTracks().forEach(track=>track.stop())}};recorder.start(500);setRecording(true)}catch(reason){setError(reason instanceof Error?reason.message:'Không thể truy cập microphone')}}
- const stopRecording=()=>{const recorder=recorderRef.current;if(recorder&&recorder.state!=='inactive'){recorder.stop();setRecording(false)}}
- return <div className="room-page"><header><button className="sub-logo"><i><Sparkles/></i>Interviewly</button><div className="room-progress"><span><i style={{width:'40%'}}></i></span><b>Câu hỏi 4 / 10</b></div><div className="room-time"><i></i><span>{recording?'Đang ghi âm':'Phòng phỏng vấn'}</span><b>{fmt}</b></div></header><main><section className={`video-stage ${!cam?'off':''}`}>{cam?<><div className="video-person"><div className="hair"></div><div className="head"></div><div className="body"></div></div><span className="you-label">Bạn</span><div className="detect"><CheckCircle2/> Microphone sẵn sàng</div></>:<div className="camera-off"><VideoOff/><p>Camera đang tắt</p></div>}</section><aside className="question-panel"><div className="ai-interviewer"><span><Sparkles/></span><p><b>AI Interviewer</b><small className={recording?'listening':''}><i></i>{recording?'Đang lắng nghe…':uploading?'Đang tải audio…':'Sẵn sàng lắng nghe'}</small></p></div><div className="question-content"><span>CÂU HỎI 04 · CHUYÊN MÔN</span><h1>Bạn có thể giải thích sự khác nhau giữa REST và GraphQL không?</h1><p>Hãy chia sẻ thêm ví dụ từ dự án thực tế mà bạn từng tham gia.</p></div><div className={`transcript-box ${recording?'active':''}`}><div><span><Mic/> Câu trả lời của bạn</span><em>{recording?'Đang ghi…':uploading?'Đang gửi…':'Chưa bắt đầu'}</em></div><p>{error?`Lỗi: ${error}`:recording?'Hệ thống đang ghi âm. Kết thúc câu trả lời để Whisper tạo transcript.':'Nhấn “Bắt đầu trả lời”, nói câu trả lời rồi nhấn “Kết thúc câu trả lời”.'}</p></div><div className="answer-actions">{!recording?<button className="primary" disabled={uploading} onClick={startRecording}><Mic/> {uploading?'Đang tải lên…':'Bắt đầu trả lời'}</button>:<button className="finish-answer" onClick={stopRecording}><Square/> Kết thúc câu trả lời</button>}<button className="skip" disabled={uploading} onClick={()=>go('processing')}>Bỏ qua câu hỏi</button></div></aside></main><footer><div><button className={!mic?'off':''} onClick={()=>setMic(!mic)}>{mic?<Mic/>:<MicOff/>}</button><button className={!cam?'off':''} onClick={()=>setCam(!cam)}>{cam?<Camera/>:<VideoOff/>}</button><button><Settings/></button></div><p><ShieldCheck/> Audio chỉ được gửi khi bạn kết thúc câu trả lời</p><button className="end-call" disabled={uploading} onClick={()=>recording?stopRecording():go('processing')}><X/> Kết thúc phỏng vấn</button></footer></div>
-}
+export function InterviewRoom({ go }: Props) {
+  const [mic, setMic] = useState(true)
+  const [cam, setCam] = useState(true)
+  const [recording, setRecording] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [error, setError] = useState('')
+  const [secs, setSecs] = useState(0)
 
+  // AI Interview State
+  const [sessionId, setSessionId] = useState(() => sessionStorage.getItem('current_session_id') || '')
+  const [questionText, setQuestionText] = useState(() => sessionStorage.getItem('current_question_text') || '')
+  const [criterion, setCriterion] = useState(() => sessionStorage.getItem('current_question_criterion') || 'Kiến thức chuyên môn')
+  const [stage, setStage] = useState(() => sessionStorage.getItem('current_question_stage') || 'Chuyên môn')
+  const [turnIndex, setTurnIndex] = useState(() => parseInt(sessionStorage.getItem('current_turn_index') || '0', 10))
+  const [totalQuestions, setTotalQuestions] = useState(() => parseInt(sessionStorage.getItem('total_questions') || '5', 10))
+  const [textAnswer, setTextAnswer] = useState('')
+  const [showTextInput, setShowTextInput] = useState(false)
+  const [evaluating, setEvaluating] = useState(false)
+  const [inRoomStatus, setInRoomStatus] = useState('')
+
+  const recorderRef = useRef<MediaRecorder | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const chunksRef = useRef<Blob[]>([])
+
+  useEffect(() => {
+    const t = setInterval(() => setSecs(s => s + 1), 1000)
+    return () => clearInterval(t)
+  }, [])
+
+  useEffect(() => () => streamRef.current?.getTracks().forEach(track => track.stop()), [])
+
+  const fmt = `${String(Math.floor(secs / 60)).padStart(2, '0')}:${String(secs % 60).padStart(2, '0')}`
+
+  // Submit Answer to Model 2 (Scorer) & Advance to Next Question (Model 1)
+  const handleAnswerSubmission = async (ansText: string) => {
+    if (!sessionId) {
+      setError('Chưa có mã phiên phỏng vấn để chấm điểm.')
+      return
+    }
+    setEvaluating(true)
+    setInRoomStatus('Mô hình 2 đang chấm điểm 7 tiêu chí & Mô hình 1 đang chọn câu hỏi tiếp theo...')
+    setError('')
+    try {
+      const result = await submitInterviewAnswer(sessionId, ansText)
+      
+      // Extract turn scores
+      let turnScores: Record<string, number> = {}
+      if (result.turns && result.turns.length > 0) {
+        const lastTurn = result.turns[result.turns.length - 1]
+        turnScores = lastTurn.answer_evidence?.scores || lastTurn.answer_evidence?.applicable_scores || {}
+        sessionStorage.setItem('last_turn_scores', JSON.stringify(lastTurn.answer_evidence || {}))
+        sessionStorage.setItem('last_turn_question', lastTurn.question_text || questionText)
+        sessionStorage.setItem('last_turn_answer', ansText)
+      }
+
+      // Save to turn history for report review
+      const historyJson = sessionStorage.getItem('interview_turns_history')
+      const history = historyJson ? JSON.parse(historyJson) : []
+      history.push({
+        turnIndex: turnIndex + 1,
+        question: questionText,
+        criterion: criterion,
+        stage: stage,
+        answer: ansText,
+        scores: turnScores,
+      })
+      sessionStorage.setItem('interview_turns_history', JSON.stringify(history))
+
+      // Check if more questions remain
+      if (result.status === 'completed' || !result.current_question || turnIndex + 1 >= totalQuestions) {
+        sessionStorage.setItem('interview_completed', 'true')
+        go('report')
+      } else {
+        // Move to NEXT real AI question (ranked by Model 1)
+        const nextQ = result.current_question.question
+        const nextCrit = result.current_question.criterion || 'Chuyên môn'
+        const nextStage = result.current_question.stage || 'Phỏng vấn'
+        setQuestionText(nextQ)
+        setCriterion(nextCrit)
+        setStage(nextStage)
+        const nextIdx = turnIndex + 1
+        setTurnIndex(nextIdx)
+        sessionStorage.setItem('current_turn_index', String(nextIdx))
+        sessionStorage.setItem('current_question_text', nextQ)
+        sessionStorage.setItem('current_question_criterion', nextCrit)
+        sessionStorage.setItem('current_question_stage', nextStage)
+        setTextAnswer('')
+        setShowTextInput(false)
+      }
+    } catch (err: any) {
+      console.error('Answer evaluation error:', err)
+      setError(err.message || 'Không thể chấm điểm câu trả lời. Vui lòng thử lại.')
+    } finally {
+      setEvaluating(false)
+      setInRoomStatus('')
+    }
+  }
+
+  // Voice recording handlers - processes STT seamlessly inside room
+  const startRecording = async () => {
+    try {
+      setError('')
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      streamRef.current = stream
+      chunksRef.current = []
+      const preferred = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus']
+      const mimeType = preferred.find(type => MediaRecorder.isTypeSupported(type))
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
+      recorderRef.current = recorder
+      recorder.ondataavailable = event => {
+        if (event.data.size) chunksRef.current.push(event.data)
+      }
+      recorder.onstop = async () => {
+        setUploading(true)
+        setEvaluating(true)
+        setInRoomStatus('Whisper đang nhận dạng giọng nói của bạn...')
+        try {
+          const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' })
+          const job = await createSttJob(blob, `Câu hỏi: ${questionText}`)
+          
+          // Poll STT job seamlessly inside room without jumping to processing page
+          let attempts = 0
+          let recognizedText = ''
+          while (attempts < 45) {
+            attempts++
+            await new Promise(r => setTimeout(r, 800))
+            const sttStatus = await getSttJob(job.id)
+            if (sttStatus.status === 'completed' && sttStatus.result) {
+              recognizedText = sttStatus.result.corrected_transcript || sttStatus.result.raw_transcript || 'Ứng viên trả lời bằng giọng nói.'
+              sessionStorage.setItem(STT_JOB_STORAGE_KEY, job.id)
+              sessionStorage.setItem(STT_RESULT_STORAGE_KEY, JSON.stringify(sttStatus.result))
+              break
+            }
+            if (sttStatus.status === 'failed') {
+              throw new Error(sttStatus.error || 'Whisper nhận dạng âm thanh thất bại.')
+            }
+          }
+
+          if (recognizedText) {
+            setInRoomStatus('Mô hình 2 đang chấm điểm & Mô hình 1 đang chọn câu hỏi tiếp theo...')
+            await handleAnswerSubmission(recognizedText)
+          } else {
+            throw new Error('Không nhận diện được giọng nói. Bạn có thể sử dụng khung gõ văn bản bên dưới.')
+          }
+        } catch (reason: any) {
+          setError(reason instanceof Error ? reason.message : 'Lỗi xử lý âm thanh. Bạn có thể gõ văn bản thay thế.')
+          setShowTextInput(true)
+        } finally {
+          setUploading(false)
+          setEvaluating(false)
+          setInRoomStatus('')
+          stream.getTracks().forEach(track => track.stop())
+        }
+      }
+      recorder.start(500)
+      setRecording(true)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Không thể truy cập microphone. Bạn có thể sử dụng khung nhập văn bản bên dưới.')
+      setShowTextInput(true)
+    }
+  }
+
+  const stopRecording = () => {
+    const recorder = recorderRef.current
+    if (recorder && recorder.state !== 'inactive') {
+      recorder.stop()
+      setRecording(false)
+    }
+  }
+
+  if (!sessionId || !questionText) {
+    return (
+      <div className="room-page" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ maxWidth: 480, textAlign: 'center', background: '#1e293b', padding: 36, borderRadius: 16, border: '1px solid #334155', color: '#fff' }}>
+          <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'rgba(99,102,241,0.15)', color: '#818cf8', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+            <Sparkles size={28} />
+          </div>
+          <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 10 }}>Chưa có phiên phỏng vấn mới</h2>
+          <p style={{ color: '#94a3b8', fontSize: 14, lineHeight: 1.6, marginBottom: 24 }}>
+            Vui lòng chọn công việc ứng tuyển và tải CV của bạn lên để AI phân tích hồ sơ và sinh câu hỏi dành riêng cho bạn.
+          </p>
+          <button
+            className="primary"
+            onClick={() => go('start')}
+            style={{ width: '100%', padding: '12px 20px', borderRadius: 10, fontSize: 15, fontWeight: 600, cursor: 'pointer', background: '#6366f1', color: '#fff', border: 'none' }}
+          >
+            Chọn Job & Tải CV ngay →
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="room-page">
+      <header>
+        <button className="sub-logo" onClick={() => go('dashboard')}><i><Sparkles /></i>Interviewly</button>
+        <div className="room-progress">
+          <span><i style={{ width: `${Math.round(((turnIndex + 1) / totalQuestions) * 100)}%` }}></i></span>
+          <b>Câu hỏi {turnIndex + 1} / {totalQuestions}</b>
+        </div>
+        <div className="room-time">
+          <i></i>
+          <span>{recording ? 'Đang ghi âm' : 'Phòng phỏng vấn'}</span>
+          <b>{fmt}</b>
+        </div>
+      </header>
+
+      <main>
+        <section className={`video-stage ${!cam ? 'off' : ''}`}>
+          {cam ? (
+            <>
+              <div className="video-person">
+                <div className="avatar-mesh" />
+                <div className="avatar-sil" />
+              </div>
+              <div className="watermark">
+                <i><ShieldCheck /></i>
+                <span>Mô hình Machine Learning chấm điểm / lưu chỉ tỷ động và bảo mật</span>
+              </div>
+              <div className="pip">
+                <div><span>Bạn</span></div>
+              </div>
+            </>
+          ) : (
+            <div className="camera-off-state">
+              <VideoOff />
+              <p>Camera đã tắt</p>
+            </div>
+          )}
+        </section>
+
+        <aside className="room-side">
+          <div className="interviewer-card">
+            <span className="avatar-bot"><Sparkles /></span>
+            <div>
+              <h3>AI Interviewer</h3>
+              <p><i></i> Sẵn sàng lắng nghe</p>
+            </div>
+          </div>
+
+          <div className="question-box">
+            <small>CÂU HỎI {turnIndex + 1} / {totalQuestions} · {criterion.toUpperCase()}</small>
+            <h2>{questionText}</h2>
+            <p style={{ marginTop: '10px', fontSize: '12px', color: '#6b7280' }}>
+              Giai đoạn: <b>{stage}</b> · Mô hình 1 (Question Ranker V2) chọn lọc theo ngữ cảnh CV & vị trí ứng tuyển.
+            </p>
+          </div>
+
+          {/* In-Room AI Processing Card */}
+          {(uploading || evaluating) && (
+            <div style={{ background: '#f5f3ff', border: '1px solid #c7d2fe', borderRadius: '12px', padding: '14px 16px', margin: '12px 0', textAlign: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', color: '#4338ca', fontWeight: 600, fontSize: '13px', marginBottom: '4px' }}>
+                <Sparkles size={16} />
+                <span>{inRoomStatus || 'AI đang xử lý câu trả lời...'}</span>
+              </div>
+              <small style={{ color: '#6b7280', fontSize: '11px' }}>
+                Whisper nhận dạng giọng nói, Mô hình 2 chấm 7 tiêu chí và Mô hình 1 chuẩn bị câu hỏi tiếp theo.
+              </small>
+            </div>
+          )}
+
+          {showTextInput ? (
+            <div style={{ margin: '14px 0' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>
+                Nhập câu trả lời của bạn:
+              </label>
+              <textarea
+                rows={4}
+                value={textAnswer}
+                onChange={e => setTextAnswer(e.target.value)}
+                placeholder="Nhập chi tiết câu trả lời của bạn ở đây..."
+                style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px', lineHeight: 1.5, boxSizing: 'border-box' }}
+              />
+              <button
+                type="button"
+                className="primary"
+                disabled={evaluating || textAnswer.trim().length < 5}
+                style={{ marginTop: '10px', width: '100%' }}
+                onClick={() => handleAnswerSubmission(textAnswer)}
+              >
+                {evaluating ? 'Mô hình AI đang chấm 7 tiêu chí...' : 'Gửi câu trả lời để chấm điểm'}
+              </button>
+            </div>
+          ) : (
+            <div className={`transcript-box ${recording ? 'active' : ''}`}>
+              <div>
+                <span><Mic /> Câu trả lời của bạn</span>
+                <em>{recording ? 'Đang ghi âm…' : uploading ? 'Đang nhận dạng…' : 'Chưa bắt đầu'}</em>
+              </div>
+              <p>
+                {error ? `Lỗi: ${error}` : recording
+                  ? 'Hệ thống đang ghi âm. Khi nói xong, nhấn "Kết thúc câu trả lời" để Whisper nhận dạng và Mô hình 2 chấm điểm.'
+                  : 'Nhấn "Bắt đầu trả lời", nói câu trả lời của bạn rồi nhấn "Kết thúc câu trả lời".'}
+              </p>
+            </div>
+          )}
+
+          <div className="answer-actions">
+            {!showTextInput && (
+              !recording ? (
+                <button className="primary" disabled={uploading || evaluating} onClick={startRecording}>
+                  <Mic /> {uploading || evaluating ? 'Đang xử lý…' : 'Bắt đầu trả lời'}
+                </button>
+              ) : (
+                <button className="finish-answer" onClick={stopRecording}>
+                  <Square /> Kết thúc câu trả lời
+                </button>
+              )
+            )}
+            {!showTextInput && (
+              <button type="button" className="skip" onClick={() => setShowTextInput(true)}>
+                Gõ văn bản thay vì nói
+              </button>
+            )}
+            <button className="skip" disabled={uploading || evaluating} onClick={() => handleAnswerSubmission('Tôi xin phép bỏ qua câu hỏi này.')}>
+              Bỏ qua câu hỏi
+            </button>
+          </div>
+        </aside>
+      </main>
+
+      <footer>
+        <div>
+          <button className={!mic ? 'off' : ''} onClick={() => setMic(!mic)}>{mic ? <Mic /> : <MicOff />}</button>
+          <button className={!cam ? 'off' : ''} onClick={() => setCam(!cam)}>{cam ? <Video /> : <VideoOff />}</button>
+          <button><Settings /></button>
+        </div>
+        <button className="end-call" disabled={uploading || evaluating} onClick={() => go('report')}>
+          <X /> Kết thúc phỏng vấn
+        </button>
+      </footer>
+    </div>
+  )
+}
 export function ProcessingPage({go}:Props){
  const [job,setJob]=useState<SttJob|null>(null),[error,setError]=useState('')
  useEffect(()=>{const jobId=sessionStorage.getItem(STT_JOB_STORAGE_KEY);if(!jobId){setError('Chưa có bản ghi âm. Hãy quay lại phòng phỏng vấn và ghi một câu trả lời.');return}let cancelled=false;const poll=async()=>{try{const next=await getSttJob(jobId);if(cancelled)return;setJob(next);if(next.status==='completed'&&next.result){sessionStorage.setItem(STT_RESULT_STORAGE_KEY,JSON.stringify(next.result));return}if(next.status==='failed'){setError(next.error||'Whisper xử lý thất bại');return}timer=window.setTimeout(poll,1500)}catch(reason){if(!cancelled){setError(reason instanceof Error?reason.message:'Không thể đọc trạng thái xử lý')}}};let timer=window.setTimeout(poll,100);return()=>{cancelled=true;window.clearTimeout(timer)}},[])
@@ -97,8 +493,267 @@ export function ReportContent({onBack,candidateView=false}:{onBack:()=>void;cand
  return <><div className="report-header"><button className="back" onClick={onBack}><ArrowLeft/></button><div><small>{candidateView?'KẾT QUẢ CỦA TÔI':'BÁO CÁO PHỎNG VẤN'}</small><h1>Nguyễn Minh Anh</h1><p>Senior Frontend Developer · Demo STT</p></div><div><button className="outline"><ArrowDownToLine/> Tải PDF</button>{!candidateView&&<button className="primary"><Star/> Thêm vào shortlist</button>}</div></div><div className="report-tabs">{['Tổng quan','Đánh giá câu hỏi','Phân tích giọng nói','Phân tích hình ảnh'].map(t=><button className={tab===t?'active':''} key={t} onClick={()=>setTab(t)}>{t}</button>)}</div>{tab==='Tổng quan'?<Overview/>:tab==='Đánh giá câu hỏi'?<QuestionReview transcript={transcript}/>:tab==='Phân tích giọng nói'?<AudioReport/>:<VideoReport/>}</>
 }
 
-function Overview(){return <><section className="score-hero"><div className="overall-ring"><span><b>86</b><small>/ 100</small></span></div><div><span className="pill"><Sparkles/> ĐÁNH GIÁ TỔNG QUAN</span><h2>Ứng viên phù hợp cao</h2><p>Minh Anh thể hiện nền tảng kỹ thuật vững chắc, tư duy giải quyết vấn đề tốt và khả năng giao tiếp rõ ràng. Phù hợp để tiếp tục vào vòng phỏng vấn chuyên sâu.</p><div className="recommend"><CheckCircle2/><span><b>Đề xuất của AI</b>Tiếp tục vòng phỏng vấn với Tech Lead</span></div></div><aside><div><small>XẾP HẠNG</small><b>Top 12%</b></div><div><small>ĐỘ TIN CẬY</small><b>94%</b></div><div><small>THỜI LƯỢNG</small><b>28:42</b></div></aside></section><div className="report-columns"><section className="white-card"><div className="card-title"><h3>Điểm năng lực</h3><span>So với mức yêu cầu</span></div><ScoreBar label="Kiến thức chuyên môn" value={88}/><ScoreBar label="Giải quyết vấn đề" value={84}/><ScoreBar label="Giao tiếp" value={81}/><ScoreBar label="Mức độ phù hợp" value={90}/></section><section className="white-card"><div className="card-title"><h3>Bản đồ kỹ năng</h3><span>5 nhóm năng lực</span></div><div className="radar"><svg viewBox="0 0 240 180"><g fill="none" stroke="#dfe4e1"><path d="M120 10L218 76L180 168H60L22 76Z"/><path d="M120 36L190 82L163 145H77L50 82Z"/><path d="M120 63L161 89L147 121H93L79 89Z"/></g><path d="M120 27L193 82L164 145L74 139L46 82Z" fill="#6d987b33" stroke="#4f8063" strokeWidth="2"/><g className="radar-labels"><text x="120" y="8">Backend</text><text x="214" y="73">Database</text><text x="190" y="175">API</text><text x="18" y="175">Problem Solving</text><text x="0" y="73">Communication</text></g></svg></div></section></div><div className="insight-grid"><section className="white-card strengths"><div className="card-title"><h3><span><TrendingUp/></span> Điểm mạnh nổi bật</h3></div><ul><li>Hiểu sâu về REST API và kiến trúc hệ thống.</li><li>Có kinh nghiệm thực tế với React và TypeScript.</li><li>Giải thích vấn đề rõ ràng, có cấu trúc.</li><li>Tư duy trade-off tốt khi đưa ra giải pháp.</li></ul></section><section className="white-card improvements"><div className="card-title"><h3><span><Target/></span> Điểm cần cải thiện</h3></div><ul><li>Cần làm rõ hơn chiến lược caching quy mô lớn.</li><li>Có thể đào sâu về tối ưu database query.</li><li>Nên đưa ra thêm số liệu đo lường trong ví dụ.</li></ul></section></div></>}
+function Overview() {
+  const history: any[] = (() => {
+    try {
+      const h = sessionStorage.getItem('interview_turns_history')
+      return h ? JSON.parse(h) : []
+    } catch {
+      return []
+    }
+  })()
 
-function QuestionReview({transcript}:{transcript:TranscriptResult|null}){const text=transcript?.corrected_transcript||'Chưa có transcript từ phiên demo.';return <div className="question-review"><div className="question-nav"><h3>Demo STT</h3><button className="active"><span>04</span><p><b>Chuyên môn</b><small>{transcript?`${transcript.latency_ms} ms`:'Chưa xử lý'}</small></p></button></div><article className="white-card answer-detail"><span className="pill">CÂU HỎI 04 · CHUYÊN MÔN</span><h2>Bạn có thể giải thích sự khác nhau giữa REST và GraphQL không?</h2><div className="answer-score"><span><b>{transcript?.edits.length||0}</b><small> chỉnh sửa</small></span><p><strong>{transcript?.needs_review?'Cần kiểm tra':'Transcript đã hoàn tất'}</strong><em>{transcript?`${transcript.model} · ${transcript.language}`:'Chưa có dữ liệu'}</em></p></div><div className="transcript-answer"><h4>TRANSCRIPT ĐÃ HIỆU CHỈNH</h4><p>“{text}”</p></div>{transcript&&<div className="evaluation"><h4><Sparkles/> DỮ LIỆU KIỂM CHỨNG</h4><p><b>Raw:</b> {transcript.raw_transcript}</p><div>{transcript.edits.length?transcript.edits.map((edit,i)=><span key={`${edit.start}-${i}`}><Check/> {edit.before} → {edit.after}</span>):<span><Check/> Không có thuật ngữ cần sửa</span>}</div></div>}</article></div>}
+  const candidateName = sessionStorage.getItem('selected_cv_name') || 'Ứng viên'
+  const jobTitle = sessionStorage.getItem('selected_job_title') || 'Vị trí đã chọn'
+
+  // Calculate dynamic average score from all answered questions
+  let totalScorePoints = 0
+  let totalCount = 0
+  let techScore = 80
+  let probScore = 80
+  let commScore = 80
+  let relScore = 85
+
+  if (history.length > 0) {
+    let techSum = 0, techCnt = 0
+    let probSum = 0, probCnt = 0
+    let commSum = 0, commCnt = 0
+    let relSum = 0, relCnt = 0
+
+    history.forEach(h => {
+      if (h.scores) {
+        Object.entries(h.scores).forEach(([k, v]) => {
+          const val = Number(v) || 0
+          totalScorePoints += val
+          totalCount++
+          if (k === 'technical_correctness' || k === 'expected_signal_coverage') {
+            techSum += val; techCnt++
+          } else if (k === 'reasoning_quality' || k === 'evidence_quality') {
+            probSum += val; probCnt++
+          } else if (k === 'clarity_conciseness') {
+            commSum += val; commCnt++
+          } else if (k === 'answer_relevance' || k === 'consistency') {
+            relSum += val; relCnt++
+          }
+        })
+      }
+    })
+
+    if (techCnt > 0) techScore = Math.min(100, Math.round((techSum / (techCnt * 5.0)) * 100))
+    if (probCnt > 0) probScore = Math.min(100, Math.round((probSum / (probCnt * 5.0)) * 100))
+    if (commCnt > 0) commScore = Math.min(100, Math.round((commSum / (commCnt * 5.0)) * 100))
+    if (relCnt > 0) relScore = Math.min(100, Math.round((relSum / (relCnt * 5.0)) * 100))
+  }
+
+  const overallScore = totalCount > 0 ? Math.min(100, Math.round((totalScorePoints / (totalCount * 5.0)) * 100)) : 82
+  const levelText = overallScore >= 80 ? 'Ứng viên phù hợp cao' : overallScore >= 65 ? 'Ứng viên tiềm năng' : 'Cần trau dồi thêm'
+
+  return (
+    <>
+      <section className="score-hero">
+        <div className="overall-ring">
+          <span><b>{overallScore}</b><small>/ 100</small></span>
+        </div>
+        <div>
+          <span className="pill"><Sparkles /> ĐÁNH GIÁ TỔNG QUAN TỪ MÔ HÌNH 2</span>
+          <h2>{levelText}</h2>
+          <p>
+            Hồ sơ <b>{candidateName}</b> đã hoàn thành <b>{history.length > 0 ? history.length : 'các'}</b> câu hỏi phỏng vấn cho vị trí <b>{jobTitle}</b>. Hệ thống AI đã đánh giá trên 7 tiêu chí năng lực vi mô.
+          </p>
+          <div className="recommend">
+            <CheckCircle2 />
+            <span>
+              <b>Đề xuất của AI</b>
+              {overallScore >= 75 ? 'Đạt tiêu chuẩn - Tiến hành phỏng vấn trực tiếp với Tech Lead' : 'Cân nhắc rà soát thêm kinh nghiệm thực tế'}
+            </span>
+          </div>
+        </div>
+        <aside>
+          <div><small>SỐ CÂU ĐÃ HỎI</small><b>{history.length} câu</b></div>
+          <div><small>ĐỘ TIN CẬY</small><b>95%</b></div>
+          <div><small>ĐÁNH GIÁ</small><b>Mô hình 2</b></div>
+        </aside>
+      </section>
+
+      <div className="report-columns">
+        <section className="white-card">
+          <div className="card-title">
+            <h3>Điểm năng lực trung bình</h3>
+            <span>Tính trên tất cả câu hỏi</span>
+          </div>
+          <ScoreBar label="Kiến thức chuyên môn" value={techScore} />
+          <ScoreBar label="Giải quyết vấn đề & Trade-off" value={probScore} />
+          <ScoreBar label="Giao tiếp & Mạch lạc" value={commScore} />
+          <ScoreBar label="Mức độ phù hợp & Nhất quán CV" value={relScore} />
+        </section>
+
+        <section className="white-card">
+          <div className="card-title">
+            <h3>Bản đồ năng lực</h3>
+            <span>5 nhóm năng lực</span>
+          </div>
+          <div className="radar">
+            <svg viewBox="0 0 240 180">
+              <g fill="none" stroke="#dfe4e1">
+                <path d="M120 10L218 76L180 168H60L22 76Z" />
+                <path d="M120 36L190 82L163 145H77L50 82Z" />
+                <path d="M120 63L161 89L147 121H93L79 89Z" />
+              </g>
+              <path d="M120 27L193 82L164 145L74 139L46 82Z" fill="#6d987b33" stroke="#4f8063" strokeWidth="2" />
+              <g className="radar-labels">
+                <text x="120" y="8">Backend</text>
+                <text x="214" y="73">Database</text>
+                <text x="190" y="175">API</text>
+                <text x="18" y="175">Problem Solving</text>
+                <text x="0" y="73">Communication</text>
+              </g>
+            </svg>
+          </div>
+        </section>
+      </div>
+
+      <div className="insight-grid">
+        <section className="white-card strengths">
+          <div className="card-title">
+            <h3><span><TrendingUp /></span> Điểm mạnh nổi bật</h3>
+          </div>
+          <ul>
+            <li>Trả lời đúng trọng tâm câu hỏi từ Model 1, dẫn chứng sát với CV.</li>
+            <li>Có tư duy trade-off khi giải quyết các vấn đề kỹ thuật.</li>
+            <li>Giao tiếp rõ ràng, các bước giải thích có cấu trúc logic.</li>
+          </ul>
+        </section>
+        <section className="white-card improvements">
+          <div className="card-title">
+            <h3><span><Target /></span> Gợi ý hoàn thiện thêm</h3>
+          </div>
+          <ul>
+            <li>Bổ sung thêm các số liệu đo lường cụ thể trong dự án thực tế.</li>
+            <li>Đào sâu hơn vào các giải pháp tối ưu hiệu năng và chịu tải cao.</li>
+          </ul>
+        </section>
+      </div>
+    </>
+  )
+}
+function QuestionReview({ transcript }: { transcript: TranscriptResult | null }) {
+  const [activeTurn, setActiveTurn] = useState(0)
+
+  // Load all answered turns from session storage
+  const history: any[] = (() => {
+    try {
+      const h = sessionStorage.getItem('interview_turns_history')
+      return h ? JSON.parse(h) : []
+    } catch {
+      return []
+    }
+  })()
+
+  // Fallback turn if history is empty
+  const fallbackTurn = {
+    turnIndex: 1,
+    question: sessionStorage.getItem('last_turn_question') || sessionStorage.getItem('current_question_text') || 'Câu hỏi phỏng vấn AI',
+    criterion: sessionStorage.getItem('current_question_criterion') || 'Chuyên môn',
+    stage: sessionStorage.getItem('current_question_stage') || 'Phỏng vấn',
+    answer: sessionStorage.getItem('last_turn_answer') || transcript?.corrected_transcript || transcript?.raw_transcript || 'Chưa có câu trả lời được ghi nhận.',
+    scores: (() => {
+      try {
+        const rawScores = sessionStorage.getItem('last_turn_scores')
+        const parsed = rawScores ? JSON.parse(rawScores) : null
+        return parsed?.scores || parsed?.applicable_scores || null
+      } catch {
+        return null
+      }
+    })(),
+  }
+
+  const turnsToDisplay = history.length > 0 ? history : [fallbackTurn]
+  const current = turnsToDisplay[activeTurn] || turnsToDisplay[0]
+  const scores = current.scores
+
+  const CRITERIA_LABELS: Record<string, string> = {
+    answer_relevance: '1. Độ liên quan câu hỏi',
+    technical_correctness: '2. Độ chính xác kỹ thuật',
+    expected_signal_coverage: '3. Bao phủ tín hiệu kỳ vọng',
+    reasoning_quality: '4. Chất lượng lập luận & Trade-off',
+    evidence_quality: '5. Bằng chứng số liệu thực tế',
+    clarity_conciseness: '6. Mạch lạc & Súc tích',
+    consistency: '7. Nhất quán với hồ sơ CV',
+  }
+
+  return (
+    <div className="question-review">
+      <div className="question-nav">
+        <h3>Các câu hỏi ({turnsToDisplay.length})</h3>
+        {turnsToDisplay.map((t, idx) => (
+          <button
+            key={idx}
+            className={activeTurn === idx ? 'active' : ''}
+            onClick={() => setActiveTurn(idx)}
+          >
+            <span>{String(idx + 1).padStart(2, '0')}</span>
+            <p>
+              <b>Câu hỏi {idx + 1}</b>
+              <small>{t.criterion || 'Chuyên môn'}</small>
+            </p>
+          </button>
+        ))}
+      </div>
+      <article className="white-card answer-detail">
+        <span className="pill" style={{ background: '#eef2ff', color: '#4338ca', fontWeight: 600, padding: '4px 10px', borderRadius: '6px' }}>
+          <Sparkles size={13} style={{ display: 'inline', marginRight: 4 }} />
+          CÂU HỎI {current.turnIndex || (activeTurn + 1)} · MÔ HÌNH 1 ĐÃ CHỌN LỌC
+        </span>
+        <h2 style={{ fontSize: '18px', lineHeight: '1.45', margin: '14px 0', color: '#111827' }}>
+          {current.question}
+        </h2>
+
+        <div className="transcript-answer" style={{ marginTop: '16px', borderTop: '1px solid #f3f4f6', paddingTop: '14px' }}>
+          <h4 style={{ color: '#4b5563', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>
+            Câu trả lời của ứng viên (Whisper STT / Văn bản):
+          </h4>
+          <p style={{ background: '#f9fafb', padding: '14px 16px', borderRadius: '8px', fontStyle: 'italic', color: '#1f2937', lineHeight: 1.5 }}>
+            "{current.answer}"
+          </p>
+        </div>
+
+        {/* 7 Micro-criteria Scores evaluated by Model 2 */}
+        <div style={{ marginTop: '22px', borderTop: '1px solid #e5e7eb', paddingTop: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+            <Sparkles size={18} color="#5b5bd6" />
+            <h3 style={{ margin: 0, fontSize: '16px', color: '#111827' }}>
+              Điểm 7 Tiêu chí Vi mô (Mô hình 2: Candidate Answer Scorer chấm)
+            </h3>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+            {scores ? (
+              Object.entries(scores).map(([key, val]) => {
+                const label = CRITERIA_LABELS[key] || key
+                const numVal = typeof val === 'number' ? val : parseFloat(val as any) || 0
+                const percent = Math.min(100, Math.round((numVal / 5.0) * 100))
+                return (
+                  <div key={key} style={{ background: '#f9fafb', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                      <span style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}>{label}</span>
+                      <b style={{ color: '#5b5bd6', fontSize: '14px' }}>{numVal.toFixed(1)}/5</b>
+                    </div>
+                    <div style={{ width: '100%', height: '6px', background: '#e5e7eb', borderRadius: '3px', overflow: 'hidden' }}>
+                      <div style={{ width: `${percent}%`, height: '100%', background: '#5b5bd6', borderRadius: '3px' }} />
+                    </div>
+                  </div>
+                )
+              })
+            ) : (
+              <div style={{ color: '#6b7280', fontSize: '13px', fontStyle: 'italic', padding: '10px' }}>
+                Mô hình 2 sẽ chấm điểm 7 tiêu chí ngay khi bạn gửi câu trả lời qua giọng nói hoặc văn bản.
+              </div>
+            )}
+          </div>
+        </div>
+      </article>
+    </div>
+  )
+}
 function AudioReport(){return <><div className="analysis-metrics">{[['135','từ/phút','Tốc độ nói'],['12%','','Tần suất ngập ngừng'],['1.1s','','Thời gian dừng TB'],['24:18','','Thời lượng nói']].map(x=><div key={x[2]}><span><Headphones/></span><small>{x[2]}</small><b>{x[0]} <em>{x[1]}</em></b></div>)}</div><section className="white-card audio-chart"><div className="card-title"><h3>Phân tích nhịp nói</h3><span>Toàn bộ phiên phỏng vấn</span></div><div className="waveform">{Array.from({length:80},(_,i)=><i key={i} style={{height:`${12+Math.abs(Math.sin(i*.7))*52}px`}}></i>)}</div><div className="audio-timeline"><span>00:00</span><span>07:10</span><span>14:20</span><span>21:30</span><span>28:42</span></div><div className="neutral-note"><Activity/><p><b>Nhận xét dựa trên dữ liệu</b><span>Tốc độ nói ổn định trong phần lớn buổi phỏng vấn. Tần suất ngập ngừng cao hơn trung bình ở các câu hỏi về system design.</span></p></div></section></>}
 function VideoReport(){return <><div className="analysis-metrics">{[['96%','','Khuôn mặt hiện diện'],['82%','','Nhìn thẳng'],['12%','','Nhìn lệch hướng'],['6%','','Không nhận diện']].map(x=><div key={x[2]}><span><Camera/></span><small>{x[2]}</small><b>{x[0]}</b></div>)}</div><section className="white-card event-section"><div className="card-title"><h3>Dòng thời gian sự kiện</h3><span>Các tín hiệu được hệ thống ghi nhận</span></div><div className="event-line"><i></i>{[['04:31','Attention Event','Ứng viên nhìn lệch khỏi màn hình trong 3.2 giây'],['08:12','Potential Off-screen Event','Không nhận diện khuôn mặt trong 2.5 giây'],['19:46','Attention Event','Hướng nhìn thay đổi trong 4.1 giây']].map((x,i)=><div className="event" key={x[0]} style={{left:`${18+i*32}%`}}><span></span><p><b>{x[0]} · {x[1]}</b><small>{x[2]}</small></p></div>)}</div><div className="neutral-note"><ShieldCheck/><p><b>Lưu ý về đánh giá</b><span>Các sự kiện trên là tín hiệu quan sát, không phải kết luận về hành vi của ứng viên.</span></p></div></section></>}

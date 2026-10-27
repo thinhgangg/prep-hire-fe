@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowRight, BarChart3, Bell, BriefcaseBusiness, Check, ChevronDown, CircleHelp, FileText, Home, LogOut, Menu, Search, Settings, Sparkles, UploadCloud, UserRound, Users, X } from 'lucide-react'
+import { fetchRealJobs, DbJob } from './services/jobApi'
+import { createSessionWithUpload } from './services/interviewApi'
 import { AnalysisPage, CandidatesPage, DeviceCheckPage, InterviewRoom, InterviewsPage, JobsPage, ProcessingPage, ReportPage, ReportsPage, SettingsPage } from './Pages'
 
 export type Page = 'login' | 'dashboard' | 'start' | 'interviews' | 'candidates' | 'jobs' | 'reports' | 'settings' | 'analysis' | 'device' | 'room' | 'processing' | 'report'
@@ -93,24 +95,596 @@ export function Dashboard({ go }: { go: (p: Page) => void }) {
 }
 
 export function StartInterview({ go }: { go: (p: Page) => void }) {
-  const [file, setFile] = useState<File | null>(null), [selected, setSelected] = useState<number|null>(null), [query,setQuery]=useState(''), [drag,setDrag]=useState(false), [started,setStarted]=useState(false)
+  const [file, setFile] = useState<File | null>(null)
+  const [selectedCvId, setSelectedCvId] = useState<number | null>(null)
+  const [cvMode, setCvMode] = useState<'upload' | 'stored'>('upload')
+  const [availableCvs, setAvailableCvs] = useState<any[]>([])
+
+  const [selected, setSelected] = useState<number | null>(null)
+  const [query, setQuery] = useState('')
+  const [drag, setDrag] = useState(false)
+  const [started, setStarted] = useState(false)
+  const [jobList, setJobList] = useState<DbJob[]>([])
+  const [loading, setLoading] = useState(true)
+  const [creatingSession, setCreatingSession] = useState(false)
+  const [sessionError, setSessionError] = useState('')
+  const [numQuestions, setNumQuestions] = useState<number>(5)
+
   const input = useRef<HTMLInputElement>(null)
-  const filtered = jobs.filter(j => j.title.toLowerCase().includes(query.toLowerCase()))
-  const drop = (e: React.DragEvent) => {e.preventDefault();setDrag(false);if(e.dataTransfer.files[0])setFile(e.dataTransfer.files[0])}
-  if(started) return <AppShell page="start" go={go}><div className="success-page"><div className="success-mark"><Check/></div><span className="pill"><Sparkles size={13}/> ĐÃ TIẾP NHẬN</span><h1>Thông tin đã sẵn sàng!</h1><p>AI đã nhận CV và yêu cầu cho vị trí <b>{jobs.find(j=>j.id===selected)?.title}</b>.</p><div className="progress-box"><div><span>Hồ sơ ứng viên</span><b>Hoàn tất</b></div><div className="progress"><i></i></div><div><span>Bước tiếp theo</span><b className="working">Phân tích với AI</b></div></div><button className="primary full" onClick={()=>go('analysis')}>Bắt đầu phân tích <ArrowRight size={17}/></button><button className="secondary success-back" onClick={()=>setStarted(false)}>Quay lại chỉnh sửa</button></div></AppShell>
-  return <AppShell page="start" go={go}>
-    <header className="simple-header"><div><button className="back" onClick={()=>go('dashboard')}>←</button><div><p>TẠO PHỎNG VẤN MỚI</p><h1>Chuẩn bị buổi phỏng vấn</h1></div></div><button className="icon-btn"><Bell/></button></header>
-    <div className="stepper"><div className="done"><i><Check/></i><span><b>Hồ sơ ứng viên</b><small>Tải lên CV</small></span></div><em></em><div className={file?'current':''}><i>2</i><span><b>Chọn công việc</b><small>Vị trí ứng tuyển</small></span></div><em></em><div className={selected?'current':''}><i>3</i><span><b>Xác nhận</b><small>Sẵn sàng bắt đầu</small></span></div></div>
-    <div className="create-grid"><div className="create-main">
-      <section className="form-card"><div className="card-heading"><span className="number">01</span><div><h2>Hồ sơ ứng viên</h2><p>Tải CV để AI phân tích kinh nghiệm và kỹ năng.</p></div>{file&&<span className="complete"><Check/> Hoàn tất</span>}</div>
-        {!file ? <div className={`dropzone ${drag?'drag':''}`} onDragOver={e=>{e.preventDefault();setDrag(true)}} onDragLeave={()=>setDrag(false)} onDrop={drop} onClick={()=>input.current?.click()}><input ref={input} type="file" accept=".pdf,.doc,.docx" onChange={e=>setFile(e.target.files?.[0]||null)}/><span><UploadCloud/></span><h3>Kéo & thả CV vào đây</h3><p>hoặc <b>chọn tệp từ máy tính</b></p><small>Hỗ trợ PDF, DOCX · Tối đa 10MB</small></div> : <div className="file-item"><span className="pdf"><FileText/></span><div><b>{file.name}</b><small>{(file.size/1024/1024).toFixed(1)} MB · Sẵn sàng phân tích</small></div><span className="file-ok"><Check/></span><button onClick={()=>setFile(null)}><X/></button></div>}
-      </section>
-      <section className={`form-card ${!file?'muted-card':''}`}><div className="card-heading"><span className="number">02</span><div><h2>Chọn vị trí tuyển dụng</h2><p>AI sẽ dựa trên yêu cầu công việc để tạo câu hỏi.</p></div></div>
-        <div className="job-search"><Search/><input placeholder="Tìm kiếm theo tên vị trí..." value={query} onChange={e=>setQuery(e.target.value)} disabled={!file}/></div>
-        <div className="job-list">{filtered.map(job=><button key={job.id} disabled={!file} className={`job-option ${selected===job.id?'selected':''}`} onClick={()=>setSelected(job.id)}><span className="job-icon" style={{background:job.accent}}>{job.title.split(' ').slice(0,2).map(x=>x[0]).join('')}</span><span className="job-info"><b>{job.title}</b><small>{job.department} · {job.location}</small><span>{job.skills.map(s=><i key={s}>{s}</i>)}</span></span><i className="radio">{selected===job.id&&<span/>}</i></button>)}</div>
-      </section>
-    </div><aside className="summary-card"><span className="pill"><Sparkles size={13}/> TÓM TẮT</span><h3>Buổi phỏng vấn của bạn</h3><div className="summary-row"><small>HỒ SƠ</small>{file?<div><span className="pdf tiny"><FileText/></span><p><b>{file.name}</b><small>Đã tải lên</small></p></div>:<p className="empty-value">Chưa có CV</p>}</div><div className="summary-row"><small>VỊ TRÍ</small>{selected?<div><span className="job-icon tiny-job" style={{background:jobs.find(j=>j.id===selected)?.accent}}>{jobs.find(j=>j.id===selected)?.title[0]}</span><p><b>{jobs.find(j=>j.id===selected)?.title}</b><small>{jobs.find(j=>j.id===selected)?.department}</small></p></div>:<p className="empty-value">Chưa chọn công việc</p>}</div><div className="summary-note"><Sparkles/><p><b>AI sẽ chuẩn bị gì?</b><span>Phân tích CV, đối chiếu yêu cầu và tạo 10–12 câu hỏi cá nhân hóa.</span></p></div><button className="primary full" disabled={!file||!selected} onClick={()=>setStarted(true)}>Tiếp tục với AI <ArrowRight/></button><p className="secure">🔒 Dữ liệu được mã hóa và bảo mật</p></aside></div>
-  </AppShell>
+
+  // Custom Job Upload/Input State
+  const [jobMode, setJobMode] = useState<'system' | 'upload'>('system')
+  const [customTitle, setCustomTitle] = useState('')
+  const [customCompany, setCustomCompany] = useState('')
+  const [customJdText, setCustomJdText] = useState('')
+  const [jdFile, setJdFile] = useState<File | null>(null)
+  const [jdDrag, setJdDrag] = useState(false)
+  const jdInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    fetchRealJobs().then(res => {
+      setJobList(res)
+      setLoading(false)
+    })
+    // Fetch available CVs from backend
+    fetch((import.meta.env.VITE_API_BASE_URL || 'http://localhost:8002').replace(/\/$/, '') + '/api/v1/interview/demo/options')
+      .then(r => r.json())
+      .then(d => {
+        if (Array.isArray(d.cvs)) setAvailableCvs(d.cvs)
+      })
+      .catch(() => {})
+  }, [])
+
+  const filtered = jobList.filter(j =>
+    j.title.toLowerCase().includes(query.toLowerCase()) ||
+    j.company.toLowerCase().includes(query.toLowerCase()) ||
+    j.location.toLowerCase().includes(query.toLowerCase())
+  )
+
+  const selectedJob = jobList.find(j => j.id === selected)
+
+  const isCustomValid = jobMode === 'upload' && (customTitle.trim().length > 0 || jdFile !== null)
+  const effectiveJob: DbJob | null = jobMode === 'system'
+    ? (selectedJob || null)
+    : isCustomValid
+    ? {
+        id: -999,
+        title: customTitle.trim() || (jdFile ? jdFile.name.replace(/\.[^/.]+$/, '').replace(/[_-]+/g, ' ') : 'Vị trí tùy chỉnh'),
+        company: customCompany.trim() || 'Doanh nghiệp ngoài hệ thống',
+        location: 'Tùy chỉnh',
+        level: 'Bên ngoài',
+        accent: '#e11d48',
+        skills: ['Job tùy chỉnh', 'JD ngoài hệ thống'],
+      }
+    : null
+
+  const hasCvSelected = cvMode === 'upload' ? file !== null : selectedCvId !== null
+  const hasJobSelected = Boolean(effectiveJob)
+
+  const drop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setDrag(false)
+    if (e.dataTransfer.files[0]) {
+      setFile(e.dataTransfer.files[0])
+      setCvMode('upload')
+    }
+  }
+
+  const handleJdFileChange = (uploadedFile: File | null) => {
+    setJdFile(uploadedFile)
+    if (uploadedFile && !customTitle) {
+      const cleanName = uploadedFile.name.replace(/\.[^/.]+$/, '').replace(/[_-]+/g, ' ')
+      setCustomTitle(cleanName)
+    }
+  }
+
+  // TRIGGER REAL AI SESSION CREATION
+  const handleStart = async () => {
+    if (!hasCvSelected || !effectiveJob) return
+    setCreatingSession(true)
+    setSessionError('')
+
+    // Clear old session storage so fresh questions are always generated
+    sessionStorage.removeItem('current_session_id')
+    sessionStorage.removeItem('current_question_text')
+    sessionStorage.removeItem('current_question_criterion')
+    sessionStorage.removeItem('current_question_stage')
+    sessionStorage.removeItem('current_turn_index')
+    sessionStorage.removeItem('last_turn_scores')
+    sessionStorage.removeItem('last_turn_question')
+    sessionStorage.removeItem('last_turn_answer')
+    sessionStorage.removeItem('interview_completed')
+
+    try {
+      const session = await createSessionWithUpload({
+        cvFile: cvMode === 'upload' ? file : null,
+        cvId: cvMode === 'stored' ? selectedCvId : null,
+        jobId: jobMode === 'system' ? selectedJob?.id : null,
+        jdFile: jobMode === 'upload' ? jdFile : null,
+        jdText: jobMode === 'upload' ? customJdText : null,
+        maxQuestions: numQuestions,
+      })
+
+      if (session && session.session_id) {
+        sessionStorage.setItem('current_session_id', session.session_id)
+        if (session.current_question) {
+          sessionStorage.setItem('current_question_text', session.current_question.question)
+          sessionStorage.setItem('current_question_criterion', session.current_question.criterion || 'Chuyên môn')
+          sessionStorage.setItem('current_question_stage', session.current_question.stage || 'introduction')
+        }
+        sessionStorage.setItem('current_turn_index', '0')
+        sessionStorage.setItem('total_questions', String(session.max_questions || numQuestions))
+        sessionStorage.removeItem('interview_turns_history')
+        sessionStorage.setItem('selected_job_title', effectiveJob.title)
+        sessionStorage.setItem('selected_job_company', effectiveJob.company)
+      }
+      setStarted(true)
+    } catch (err: any) {
+      console.error('Session create failed:', err)
+      setSessionError(err.message || 'Không thể tạo phiên phỏng vấn từ AI. Vui lòng thử lại.')
+    } finally {
+      setCreatingSession(false)
+    }
+  }
+
+  if (started) {
+    return (
+      <AppShell page="start" go={go}>
+        <div className="success-page">
+          <div className="success-mark"><Check /></div>
+          <span className="pill"><Sparkles size={13} /> MÔ HÌNH AI ĐÃ SẴN SÀNG</span>
+          <h1>Bộ câu hỏi đã được tạo riêng cho bạn!</h1>
+          <p>
+            Mô hình 1 (Question Ranker V2) đã phân tích hồ sơ CV của bạn và đối chiếu với vị trí <b>{effectiveJob?.title}</b> ({effectiveJob?.company}) để chọn ra các câu hỏi sát thực tế nhất.
+          </p>
+          <div className="progress-box">
+            <div><span>Hồ sơ ứng viên & Vị trí</span><b>Hoàn tất</b></div>
+            <div className="progress"><i /></div>
+            <div><span>Bộ câu hỏi AI</span><b className="working">Đã tuyển chọn</b></div>
+          </div>
+          <button className="primary full" onClick={() => go('room')}>
+            Vào phòng phỏng vấn ngay <ArrowRight size={17} />
+          </button>
+          <button className="secondary success-back" onClick={() => setStarted(false)}>
+            Quay lại chỉnh sửa hồ sơ
+          </button>
+        </div>
+      </AppShell>
+    )
+  }
+
+  return (
+    <AppShell page="start" go={go}>
+      <header className="simple-header">
+        <div>
+          <button className="back" onClick={() => go('dashboard')}>←</button>
+          <div>
+            <p>TẠO PHỎNG VẤN MỚI</p>
+            <h1>Chuẩn bị buổi phỏng vấn</h1>
+          </div>
+        </div>
+        <button className="icon-btn"><Bell /></button>
+      </header>
+      <div className="stepper">
+        <div className="done"><i><Check /></i><span><b>Hồ sơ ứng viên</b><small>Tải lên CV</small></span></div>
+        <em />
+        <div className={hasJobSelected ? 'done' : hasCvSelected ? 'current' : ''}><i>2</i><span><b>Chọn công việc</b><small>Vị trí ứng tuyển</small></span></div>
+        <em />
+        <div className={hasJobSelected && hasCvSelected ? 'current' : ''}><i>3</i><span><b>Xác nhận</b><small>Sẵn sàng bắt đầu</small></span></div>
+      </div>
+      <div className="create-grid">
+        <div className="create-main">
+          {/* Section 01: CV */}
+          <section className="form-card">
+            <div className="card-heading">
+              <span className="number">01</span>
+              <div>
+                <h2>Hồ sơ ứng viên (CV)</h2>
+                <p>Tải file CV của bạn hoặc chọn từ danh sách CV có sẵn trong hệ thống.</p>
+              </div>
+              {hasCvSelected && <span className="complete"><Check /> Hoàn tất</span>}
+            </div>
+
+            {/* Toggle CV Mode */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '14px', padding: '4px', background: '#f3f4f6', borderRadius: '10px', width: 'fit-content' }}>
+              <button
+                type="button"
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  background: cvMode === 'upload' ? '#5b5bd6' : 'transparent',
+                  color: cvMode === 'upload' ? '#fff' : '#4b5563',
+                }}
+                onClick={() => setCvMode('upload')}
+              >
+                Tải file CV từ máy tính
+              </button>
+              <button
+                type="button"
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  background: cvMode === 'stored' ? '#5b5bd6' : 'transparent',
+                  color: cvMode === 'stored' ? '#fff' : '#4b5563',
+                }}
+                onClick={() => setCvMode('stored')}
+              >
+                Chọn CV mẫu có sẵn ({availableCvs.length})
+              </button>
+            </div>
+
+            {cvMode === 'upload' ? (
+              !file ? (
+                <div
+                  className={`dropzone ${drag ? 'drag' : ''}`}
+                  onDragOver={e => { e.preventDefault(); setDrag(true) }}
+                  onDragLeave={() => setDrag(false)}
+                  onDrop={drop}
+                  onClick={() => input.current?.click()}
+                >
+                  <input ref={input} type="file" accept=".pdf,.doc,.docx,.txt" onChange={e => { setFile(e.target.files?.[0] || null); setCvMode('upload') }} />
+                  <span><UploadCloud /></span>
+                  <h3>Kéo & thả CV của bạn vào đây</h3>
+                  <p>hoặc <b>chọn tệp từ máy tính</b></p>
+                  <small>Hỗ trợ PDF, DOCX, TXT · Tối đa 10MB</small>
+                </div>
+              ) : (
+                <div className="file-item">
+                  <span className="pdf"><FileText /></span>
+                  <div>
+                    <b>{file.name}</b>
+                    <small>{(file.size / 1024 / 1024).toFixed(1)} MB · Sẵn sàng để AI đọc & sinh câu hỏi riêng</small>
+                  </div>
+                  <span className="file-ok"><Check /></span>
+                  <button onClick={() => setFile(null)}><X /></button>
+                </div>
+              )
+            ) : (
+              <div style={{ padding: '8px 0' }}>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>Chọn hồ sơ CV lưu sẵn:</label>
+                <select
+                  value={selectedCvId || ''}
+                  onChange={e => setSelectedCvId(e.target.value ? parseInt(e.target.value, 10) : null)}
+                  style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', outline: 'none' }}
+                >
+                  <option value="">-- Chọn một CV từ kho dữ liệu --</option>
+                  {availableCvs.map(c => (
+                    <option key={c.cv_id} value={c.cv_id}>
+                      {c.file_name} (ID: {c.cv_id})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </section>
+
+          {/* Section 02: Job Selection or Custom Upload */}
+          <section className="form-card">
+            <div className="card-heading">
+              <span className="number">02</span>
+              <div>
+                <h2>Chọn vị trí tuyển dụng</h2>
+                <p>Chọn công việc có sẵn từ hệ thống hoặc tải lên bản mô tả công việc (JD) bên ngoài.</p>
+              </div>
+              {hasJobSelected && <span className="complete"><Check /> Hoàn tất</span>}
+            </div>
+
+            {/* Switch Tabs between System Jobs and Custom Upload */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', padding: '4px', background: '#f3f4f6', borderRadius: '10px', width: 'fit-content' }}>
+              <button
+                type="button"
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  background: jobMode === 'system' ? '#5b5bd6' : 'transparent',
+                  color: jobMode === 'system' ? '#fff' : '#4b5563',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  transition: 'all 0.2s',
+                }}
+                onClick={() => setJobMode('system')}
+              >
+                <BriefcaseBusiness size={15} />
+                Chọn từ kho dữ liệu ({jobList.length})
+              </button>
+
+              <button
+                type="button"
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  background: jobMode === 'upload' ? '#5b5bd6' : 'transparent',
+                  color: jobMode === 'upload' ? '#fff' : '#4b5563',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  transition: 'all 0.2s',
+                }}
+                onClick={() => setJobMode('upload')}
+              >
+                <UploadCloud size={15} />
+                Tải lên / Nhập Job ngoài
+              </button>
+            </div>
+
+            {jobMode === 'system' ? (
+              <>
+                <div className="job-search">
+                  <Search />
+                  <input
+                    placeholder="Tìm kiếm theo tên vị trí, công ty hoặc địa điểm..."
+                    value={query}
+                    onChange={e => setQuery(e.target.value)}
+                  />
+                </div>
+                {loading ? (
+                  <div style={{ padding: '36px', textAlign: 'center', color: '#6b7280' }}>
+                    Đang nạp danh sách công việc từ kho dữ liệu...
+                  </div>
+                ) : (
+                  <div className="job-list" style={{ maxHeight: '420px', overflowY: 'auto' }}>
+                    {filtered.map(job => (
+                      <button
+                        key={job.id}
+                        type="button"
+                        className={`job-option ${selected === job.id ? 'selected' : ''}`}
+                        onClick={() => setSelected(job.id)}
+                      >
+                        <span className="job-icon" style={{ background: job.accent }}>
+                          {job.title.split(' ').slice(0, 2).map(x => x[0]).join('')}
+                        </span>
+                        <span className="job-info">
+                          <b>{job.title}</b>
+                          <small>{job.company} · {job.location}</small>
+                          <span>{job.skills.map(s => <i key={s}>{s}</i>)}</span>
+                        </span>
+                        <i className="radio">{selected === job.id && <span />}</i>
+                      </button>
+                    ))}
+                    {filtered.length === 0 && (
+                      <div style={{ padding: '24px', textAlign: 'center', color: '#888' }}>
+                        Không tìm thấy công việc phù hợp với từ khóa "{query}".
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {/* Drag and Drop JD File */}
+                {!jdFile ? (
+                  <div
+                    className={`dropzone ${jdDrag ? 'drag' : ''}`}
+                    style={{ padding: '24px', borderStyle: 'dashed' }}
+                    onDragOver={e => { e.preventDefault(); setJdDrag(true) }}
+                    onDragLeave={() => setJdDrag(false)}
+                    onDrop={e => {
+                      e.preventDefault()
+                      setJdDrag(false)
+                      if (e.dataTransfer.files[0]) handleJdFileChange(e.dataTransfer.files[0])
+                    }}
+                    onClick={() => jdInputRef.current?.click()}
+                  >
+                    <input
+                      ref={jdInputRef}
+                      type="file"
+                      accept=".pdf,.doc,.docx,.txt"
+                      style={{ display: 'none' }}
+                      onChange={e => handleJdFileChange(e.target.files?.[0] || null)}
+                    />
+                    <span><UploadCloud size={24} /></span>
+                    <h3 style={{ fontSize: '15px' }}>Kéo & thả file JD (Mô tả công việc) vào đây</h3>
+                    <p style={{ margin: '4px 0' }}>hoặc <b>chọn tệp từ máy tính</b></p>
+                    <small>Hỗ trợ PDF, DOCX, TXT · Tối đa 10MB</small>
+                  </div>
+                ) : (
+                  <div className="file-item">
+                    <span className="pdf"><FileText /></span>
+                    <div>
+                      <b>{jdFile.name}</b>
+                      <small>{(jdFile.size / 1024 / 1024).toFixed(1)} MB · File JD đã tiếp nhận</small>
+                    </div>
+                    <span className="file-ok"><Check /></span>
+                    <button type="button" onClick={() => setJdFile(null)}><X /></button>
+                  </div>
+                )}
+
+                {/* Title & Company Input Fields */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>
+                      Tên vị trí tuyển dụng <span style={{ color: '#ef4444' }}>*</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="VD: Senior Backend Engineer, AI Specialist..."
+                      value={customTitle}
+                      onChange={e => setCustomTitle(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '10px 14px',
+                        borderRadius: '8px',
+                        border: '1px solid #d1d5db',
+                        fontSize: '14px',
+                        outline: 'none',
+                        boxSizing: 'border-box',
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>
+                      Tên công ty / Doanh nghiệp
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="VD: Google, VNG, VinAI, FPT..."
+                      value={customCompany}
+                      onChange={e => setCustomCompany(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '10px 14px',
+                        borderRadius: '8px',
+                        border: '1px solid #d1d5db',
+                        fontSize: '14px',
+                        outline: 'none',
+                        boxSizing: 'border-box',
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* JD Textarea */}
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>
+                    Nội dung mô tả công việc (Dán nội dung JD hoặc yêu cầu tuyển dụng)
+                  </label>
+                  <textarea
+                    rows={4}
+                    placeholder="Dán nội dung chi tiết bài tuyển dụng, trách nhiệm hoặc kỹ năng yêu cầu vào đây để AI phân tích..."
+                    value={customJdText}
+                    onChange={e => setCustomJdText(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '12px 14px',
+                      borderRadius: '8px',
+                      border: '1px solid #d1d5db',
+                      fontSize: '13px',
+                      lineHeight: 1.5,
+                      resize: 'vertical',
+                      outline: 'none',
+                      fontFamily: 'inherit',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+          </section>
+
+          {/* Section 03: Số lượng câu hỏi phỏng vấn */}
+          <section className="form-card">
+            <div className="card-heading">
+              <span className="number">03</span>
+              <div>
+                <h2>Số lượng câu hỏi phỏng vấn</h2>
+                <p>Chọn số lượng câu hỏi để AI sinh và điều phối toàn bộ buổi phỏng vấn (Hỏi - Trả lời - Tiếp tục)</p>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px', marginTop: '16px' }}>
+              {[
+                { count: 3, label: '3 câu', time: '~10 phút', desc: 'Phỏng vấn nhanh' },
+                { count: 5, label: '5 câu', time: '~20 phút', desc: 'Tiêu chuẩn (Khuyên dùng)' },
+                { count: 8, label: '8 câu', time: '~35 phút', desc: 'Đánh giá chuyên sâu' },
+                { count: 10, label: '10 câu', time: '~45 phút', desc: 'Toàn diện tất cả kỹ năng' },
+              ].map(opt => {
+                const active = numQuestions === opt.count
+                return (
+                  <button
+                    key={opt.count}
+                    type="button"
+                    onClick={() => setNumQuestions(opt.count)}
+                    style={{
+                      padding: '14px 12px',
+                      borderRadius: '12px',
+                      border: active ? '2px solid #5b5bd6' : '1px solid #e5e7eb',
+                      background: active ? '#f5f3ff' : '#ffffff',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      transition: 'all 0.15s ease',
+                      boxShadow: active ? '0 4px 12px rgba(91, 91, 214, 0.15)' : 'none',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                      <b style={{ fontSize: '16px', color: active ? '#5b5bd6' : '#111827' }}>{opt.label}</b>
+                      {active && <Check size={16} color="#5b5bd6" />}
+                    </div>
+                    <span style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#6b7280', marginBottom: '2px' }}>{opt.time}</span>
+                    <small style={{ display: 'block', fontSize: '11px', color: '#9ca3af', lineHeight: 1.3 }}>{opt.desc}</small>
+                  </button>
+                )
+              })}
+            </div>
+          </section>
+        </div>
+
+        {/* Aside Summary Card */}
+        <aside className="summary-card">
+          <span className="pill"><Sparkles size={13} /> TÓM TẮT</span>
+          <h3>Buổi phỏng vấn của bạn</h3>
+          <div className="summary-row">
+            <small>HỒ SƠ</small>
+            {file ? (
+              <div>
+                <span className="pdf tiny"><FileText /></span>
+                <p><b>{file.name}</b><small>Tệp tải lên</small></p>
+              </div>
+            ) : selectedCvId ? (
+              <div>
+                <span className="pdf tiny"><FileText /></span>
+                <p><b>{availableCvs.find(c => c.cv_id === selectedCvId)?.file_name}</b><small>CV từ hệ thống</small></p>
+              </div>
+            ) : (
+              <p className="empty-value">Chưa có CV</p>
+            )}
+          </div>
+          <div className="summary-row">
+            <small>VỊ TRÍ</small>
+            {effectiveJob ? (
+              <div>
+                <span className="job-icon tiny-job" style={{ background: effectiveJob.accent }}>
+                  {effectiveJob.title[0]}
+                </span>
+                <p>
+                  <b>{effectiveJob.title}</b>
+                  <small>{effectiveJob.company} {jobMode === 'upload' ? '(Ngoài hệ thống)' : ''}</small>
+                </p>
+              </div>
+            ) : (
+              <p className="empty-value">Chưa chọn công việc</p>
+            )}
+          </div>
+          <div className="summary-note">
+            <Sparkles />
+            <p>
+              <b>AI sẽ chuẩn bị gì?</b>
+              <span>Mô hình 1 sẽ đọc trực tiếp CV & Job bạn đã chọn để chọn ra câu hỏi sát thực tế nhất.</span>
+            </p>
+          </div>
+
+          {sessionError && (
+            <div style={{ color: '#ef4444', fontSize: '13px', margin: '8px 0', background: '#fee2e2', padding: '8px 12px', borderRadius: '6px' }}>
+              {sessionError}
+            </div>
+          )}
+
+          <button className="primary full" disabled={!hasCvSelected || !effectiveJob || creatingSession} onClick={handleStart}>
+            {creatingSession ? 'AI đang đọc CV & tuyển chọn câu hỏi...' : 'Tiếp tục với AI '}
+            {!creatingSession && <ArrowRight />}
+          </button>
+          <p className="secure">🔒 Dữ liệu được mã hóa và bảo mật</p>
+        </aside>
+      </div>
+    </AppShell>
+  )
 }
 
 function AppShell({ page, go, children }: {page:Page;go:(p:Page)=>void;children:React.ReactNode}) { return <div className="app"><Sidebar page={page} go={go}/><main className="content">{children}</main></div> }
