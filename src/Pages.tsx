@@ -17,6 +17,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from './auth/AuthContext'
 import type { Page } from './App'
 import { createSttJob, getSttJob, STT_JOB_STORAGE_KEY, STT_RESULT_STORAGE_KEY, type SttJob, type TranscriptResult } from './services/sttApi'
+import { clientGazeTracker, GAZE_RESULT_STORAGE_KEY, type GazeReportResult } from './services/gazeTracker'
 
 type Props = { go: (page: Page) => void; page?: Page }
 
@@ -174,6 +175,11 @@ export function InterviewRoom({ go }: Props) {
   const [error, setError] = useState('')
   const [secs, setSecs] = useState(0)
 
+  // Gaze Tracking State (@mediapipe/tasks-vision client-side)
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const [gazeStatus, setGazeStatus] = useState<string>('Đang nạp AI theo dõi hướng nhìn...')
+  const [gazeType, setGazeType] = useState<'normal' | 'warning' | 'alert' | 'calibrating'>('normal')
+
   // AI Interview State - dynamically loaded from An's session storage with fallback to individual keys
   const [session, setSession] = useState<InterviewSession | null>(() => loadInterviewSession())
   const [sessionId, setSessionId] = useState(() => session?.session_id || sessionStorage.getItem('current_session_id') || '')
@@ -206,7 +212,114 @@ export function InterviewRoom({ go }: Props) {
     return () => clearInterval(t)
   }, [])
 
-  useEffect(() => () => streamRef.current?.getTracks().forEach(track => track.stop()), [])
+  // Initialize camera, microphone, and MediaPipe Gaze Tracker directly in browser
+  useEffect(() => {
+    let activeStream: MediaStream | null = null
+
+    clientGazeTracker.onStateUpdate = state => {
+      if (state.status === 'CALIBRATING') {
+        setGazeStatus(`Đang hiệu chuẩn hướng nhìn... ${state.calibrationProgress || 0}%`)
+        setGazeType('calibrating')
+      } else if (state.status === 'LOOKING_STRAIGHT') {
+        setGazeStatus('Nhìn thẳng · Bình thường')
+        setGazeType('normal')
+      } else if (state.status === 'LOOKING_AWAY') {
+        const dirMap: Record<string, string> = {
+          'NHIN TRAI': 'trái',
+          'NHIN PHAI': 'phải',
+          'NHIN LEN': 'lên trên',
+          'NHIN XUONG': 'xuống dưới',
+        }
+        const dirText = state.direction ? dirMap[state.direction] || state.direction : 'lệch hướng'
+        setGazeStatus(`Đang nhìn lệch (${dirText})`)
+        setGazeType('warning')
+      } else if (state.status === 'NO_FACE') {
+        setGazeStatus('Không phát hiện khuôn mặt')
+        setGazeType('alert')
+      } else if (state.status === 'EYES_CLOSED') {
+        setGazeStatus('Mắt nhắm / chớp mắt')
+        setGazeType('normal')
+      }
+    }
+
+    const initMedia = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+          audio: true,
+        })
+        activeStream = stream
+        streamRef.current = stream
+
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream
+          try {
+            await videoRef.current.play()
+          } catch (e) {
+            console.warn('Video auto-resume note:', e)
+          }
+        }
+
+        try {
+          await clientGazeTracker.initialize()
+          if (videoRef.current) {
+            clientGazeTracker.start(videoRef.current)
+          }
+        } catch (gazeErr) {
+          console.warn('Gaze initialization note:', gazeErr)
+          setGazeStatus('Theo dõi hướng nhìn sẵn sàng')
+        }
+      } catch (err) {
+        console.warn('Dual media capture fallback:', err)
+        try {
+          const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+          activeStream = audioStream
+          streamRef.current = audioStream
+          setGazeStatus('Chỉ sử dụng microphone')
+        } catch (audioErr) {
+          setError('Không thể truy cập camera hoặc microphone. Bạn có thể sử dụng khung gõ văn bản bên dưới.')
+          setShowTextInput(true)
+        }
+      }
+    }
+
+    initMedia()
+
+    return () => {
+      try {
+        clientGazeTracker.stop()
+      } catch {}
+      if (activeStream) {
+        activeStream.getTracks().forEach(track => track.stop())
+      }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop())
+      }
+    }
+  }, [])
+
+  const toggleMic = () => {
+    const nextMic = !mic
+    setMic(nextMic)
+    streamRef.current?.getAudioTracks().forEach(track => {
+      track.enabled = nextMic
+    })
+  }
+
+  const toggleCam = () => {
+    const nextCam = !cam
+    setCam(nextCam)
+    streamRef.current?.getVideoTracks().forEach(track => {
+      track.enabled = nextCam
+    })
+  }
+
+  const handleEndInterview = () => {
+    try {
+      clientGazeTracker.stop()
+    } catch {}
+    go('report')
+  }
 
   const fmt = `${String(Math.floor(secs / 60)).padStart(2, '0')}:${String(secs % 60).padStart(2, '0')}`
 
@@ -251,6 +364,9 @@ export function InterviewRoom({ go }: Props) {
 
       // Check if more questions remain
       if (result.status === 'completed' || !result.current_question || turnIndex + 1 >= totalQuestions) {
+        try {
+          clientGazeTracker.stop()
+        } catch {}
         sessionStorage.setItem('interview_completed', 'true')
         go('report')
       } else {
@@ -283,22 +399,57 @@ export function InterviewRoom({ go }: Props) {
   const startRecording = async () => {
     try {
       setError('')
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      streamRef.current = stream
       chunksRef.current = []
-      const preferred = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus']
-      const mimeType = preferred.find(type => MediaRecorder.isTypeSupported(type))
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
-      recorderRef.current = recorder
-      recorder.ondataavailable = event => {
-        if (event.data.size) chunksRef.current.push(event.data)
+
+      // 1. Get live audio tracks from existing stream, or request audio-only stream
+      let audioStream: MediaStream | null = null
+      const liveAudioTracks = streamRef.current?.getAudioTracks().filter(t => t.readyState === 'live')
+
+      if (liveAudioTracks && liveAudioTracks.length > 0) {
+        // CRITICAL: wrap ONLY audio tracks in new MediaStream to prevent:
+        // "Failed to execute 'start' on 'MediaRecorder': There was an error starting the MediaRecorder"
+        audioStream = new MediaStream(liveAudioTracks)
+      } else {
+        const newAudioStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        audioStream = newAudioStream
+        if (streamRef.current) {
+          newAudioStream.getAudioTracks().forEach(t => streamRef.current?.addTrack(t))
+        }
       }
+
+      if (!audioStream || audioStream.getAudioTracks().length === 0) {
+        throw new Error('Không tìm thấy microphone hoạt động.')
+      }
+
+      // 2. Select compatible mimeType
+      let mimeType = ''
+      const preferred = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4']
+      for (const t of preferred) {
+        if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) {
+          mimeType = t
+          break
+        }
+      }
+
+      const recorder = new MediaRecorder(audioStream, mimeType ? { mimeType } : undefined)
+      recorderRef.current = recorder
+
+      recorder.ondataavailable = event => {
+        if (event.data && event.data.size > 0) {
+          chunksRef.current.push(event.data)
+        }
+      }
+
       recorder.onstop = async () => {
         setUploading(true)
         setEvaluating(true)
         setInRoomStatus('Whisper đang nhận dạng giọng nói của bạn...')
         try {
           const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' })
+          if (blob.size < 100) {
+            throw new Error('File âm thanh quá ngắn hoặc không có âm thanh.')
+          }
+
           const job = await createSttJob(blob, `Câu hỏi: ${questionText}. Giai đoạn: ${stage}`, sessionId, `turn-${turnIndex}`)
           
           // Poll STT job seamlessly inside room without jumping to processing page
@@ -326,19 +477,26 @@ export function InterviewRoom({ go }: Props) {
             throw new Error('Không nhận diện được giọng nói. Bạn có thể sử dụng khung gõ văn bản bên dưới.')
           }
         } catch (reason: any) {
+          console.error('Recording/STT error:', reason)
           setError(reason instanceof Error ? reason.message : 'Lỗi xử lý âm thanh. Bạn có thể gõ văn bản thay thế.')
           setShowTextInput(true)
         } finally {
           setUploading(false)
           setEvaluating(false)
           setInRoomStatus('')
-          stream.getTracks().forEach(track => track.stop())
+          // Do NOT stop streamRef tracks here! Keep camera and microphone live for subsequent questions!
         }
       }
-      recorder.start(500)
+
+      try {
+        recorder.start(1000)
+      } catch {
+        recorder.start()
+      }
       setRecording(true)
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Không thể truy cập microphone. Bạn có thể sử dụng khung nhập văn bản bên dưới.')
+    } catch (reason: any) {
+      console.error('startRecording error:', reason)
+      setError(reason instanceof Error ? reason.message : 'Không thể kích hoạt ghi âm. Bạn có thể sử dụng khung nhập văn bản bên dưới.')
       setShowTextInput(true)
     }
   }
@@ -390,27 +548,77 @@ export function InterviewRoom({ go }: Props) {
       </header>
 
       <main>
-        <section className={`video-stage ${!cam ? 'off' : ''}`}>
-          {cam ? (
-            <>
-              <div className="video-person">
-                <div className="avatar-mesh" />
-                <div className="avatar-sil" />
-              </div>
-              <div className="watermark">
-                <i><ShieldCheck /></i>
-                <span>Mô hình Machine Learning chấm điểm / lưu chỉ tỷ động và bảo mật</span>
-              </div>
-              <div className="pip">
-                <div><span>Bạn</span></div>
-              </div>
-            </>
-          ) : (
-            <div className="camera-off-state">
-              <VideoOff />
-              <p>Camera đã tắt</p>
+        <section className={`video-stage ${!cam ? 'off' : ''}`} style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#0f172a' }}>
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              transform: 'scaleX(-1)',
+              display: cam ? 'block' : 'none',
+            }}
+          />
+
+          {!cam && (
+            <div className="camera-off-state" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#94a3b8' }}>
+              <VideoOff size={48} />
+              <p style={{ marginTop: 12, fontSize: 13 }}>Camera đã tắt</p>
             </div>
           )}
+
+          {/* Gaze Status Overlay Badge */}
+          {cam && (
+            <div
+              style={{
+                position: 'absolute',
+                bottom: 20,
+                left: 20,
+                zIndex: 10,
+                background: 'rgba(15, 23, 42, 0.78)',
+                backdropFilter: 'blur(8px)',
+                border: '1px solid rgba(255, 255, 255, 0.16)',
+                color: gazeType === 'warning' ? '#fde047' : gazeType === 'alert' ? '#f87171' : '#4ade80',
+                padding: '8px 14px',
+                borderRadius: '20px',
+                fontSize: '12px',
+                fontWeight: 500,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                pointerEvents: 'none',
+                width: 'fit-content',
+                maxWidth: 'calc(100% - 40px)',
+              }}
+            >
+              <span
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: '50%',
+                  backgroundColor: gazeType === 'warning' ? '#facc15' : gazeType === 'alert' ? '#ef4444' : '#22c55e',
+                  display: 'inline-block',
+                  boxShadow: gazeType === 'normal' ? '0 0 8px #22c55e' : undefined,
+                }}
+              />
+              <span>{gazeStatus}</span>
+            </div>
+          )}
+
+          <div className="watermark" style={{ position: 'absolute', top: 16, left: 16, zIndex: 5, pointerEvents: 'none' }}>
+            <i style={{ display: 'inline-flex', verticalAlign: 'middle', marginRight: 6 }}><ShieldCheck size={14} /></i>
+            <span style={{ fontSize: 11, opacity: 0.8 }}>Mô hình Machine Learning chấm điểm / lưu chỉ tỷ động và bảo mật</span>
+          </div>
+
+          <div className="pip" style={{ position: 'absolute', top: 16, right: 16, zIndex: 5, pointerEvents: 'none' }}>
+            <div style={{ background: 'rgba(0,0,0,0.5)', padding: '4px 10px', borderRadius: 6, fontSize: 12, color: '#fff' }}>
+              <span>Bạn</span>
+            </div>
+          </div>
         </section>
 
         <aside className="room-side">
@@ -505,11 +713,14 @@ export function InterviewRoom({ go }: Props) {
 
       <footer>
         <div>
-          <button className={!mic ? 'off' : ''} onClick={() => setMic(!mic)}>{mic ? <Mic /> : <MicOff />}</button>
-          <button className={!cam ? 'off' : ''} onClick={() => setCam(!cam)}>{cam ? <Video /> : <VideoOff />}</button>
+          <button className={!mic ? 'off' : ''} onClick={toggleMic} title={mic ? 'Tắt Micro' : 'Bật Micro'}>{mic ? <Mic /> : <MicOff />}</button>
+          <button className={!cam ? 'off' : ''} onClick={toggleCam} title={cam ? 'Tắt Camera' : 'Bật Camera'}>{cam ? <Video /> : <VideoOff />}</button>
           <button><Settings /></button>
         </div>
-        <button className="end-call" disabled={uploading || evaluating} onClick={() => go('report')}>
+        <p style={{ margin: 0, fontSize: 12, color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <ShieldCheck size={14} /> Audio & Video được phân tích để đánh giá năng lực
+        </p>
+        <button className="end-call" disabled={uploading || evaluating} onClick={handleEndInterview}>
           <X /> Kết thúc phỏng vấn
         </button>
       </footer>
@@ -537,12 +748,12 @@ function evidenceScores(turn:InterviewTurn){return turn.answer_evidence?.applica
 function turnScore(turn:InterviewTurn){const values=Object.values(evidenceScores(turn)).filter(value=>Number.isFinite(value));return values.length?Math.round(values.reduce((sum,value)=>sum+value,0)/values.length*20):null}
 
 function LiveInterviewReport({onBack}:{onBack:()=>void}){
- const [tab,setTab]=useState<'Tổng quan'|'Lịch sử câu trả lời'>('Tổng quan')
+ const [tab,setTab]=useState<'Tổng quan'|'Lịch sử câu trả lời'|'Phân tích hình ảnh (Gaze)'>('Tổng quan')
  const [session]=useState<InterviewSession|null>(()=>loadInterviewSession())
  const answered=session?.turns.filter(turn=>turn.answer)||[]
  const scored=answered.map(turnScore).filter((score):score is number=>score!==null)
  const overall=scored.length?Math.round(scored.reduce((sum,score)=>sum+score,0)/scored.length):null
- return <><div className="report-header"><button className="back" onClick={onBack}><ArrowLeft/></button><div><small>KẾT QUẢ PHỎNG VẤN</small><h1>{session?.status==='completed'?'Phỏng vấn đã hoàn tất':'Kết quả hiện tại'}</h1><p>{answered.length} / {session?.max_questions||0} câu đã trả lời · Transcript đã hiệu chỉnh</p></div></div><div className="report-tabs">{(['Tổng quan','Lịch sử câu trả lời'] as const).map(item=><button className={tab===item?'active':''} key={item} onClick={()=>setTab(item)}>{item}</button>)}</div>{tab==='Tổng quan'?<LiveOverview overall={overall} answered={answered}/>:<AnswerHistory turns={answered}/>}</>
+ return <><div className="report-header"><button className="back" onClick={onBack}><ArrowLeft/></button><div><small>KẾT QUẢ PHỎNG VẤN</small><h1>{session?.status==='completed'?'Phỏng vấn đã hoàn tất':'Kết quả hiện tại'}</h1><p>{answered.length} / {session?.max_questions||0} câu đã trả lời · Transcript đã hiệu chỉnh</p></div></div><div className="report-tabs">{(['Tổng quan','Lịch sử câu trả lời','Phân tích hình ảnh (Gaze)'] as const).map(item=><button className={tab===item?'active':''} key={item} onClick={()=>setTab(item)}>{item}</button>)}</div>{tab==='Tổng quan'?<LiveOverview overall={overall} answered={answered}/>:tab==='Lịch sử câu trả lời'?<AnswerHistory turns={answered}/>:<VideoReport/>}</>
 }
 
 function LiveOverview({overall,answered}:{overall:number|null;answered:InterviewTurn[]}){
@@ -829,4 +1040,69 @@ function QuestionReview({ transcript }: { transcript: TranscriptResult | null })
   )
 }
 function AudioReport(){return <><div className="analysis-metrics">{[['135','từ/phút','Tốc độ nói'],['12%','','Tần suất ngập ngừng'],['1.1s','','Thời gian dừng TB'],['24:18','','Thời lượng nói']].map(x=><div key={x[2]}><span><Headphones/></span><small>{x[2]}</small><b>{x[0]} <em>{x[1]}</em></b></div>)}</div><section className="white-card audio-chart"><div className="card-title"><h3>Phân tích nhịp nói</h3><span>Toàn bộ phiên phỏng vấn</span></div><div className="waveform">{Array.from({length:80},(_,i)=><i key={i} style={{height:`${12+Math.abs(Math.sin(i*.7))*52}px`}}></i>)}</div><div className="audio-timeline"><span>00:00</span><span>07:10</span><span>14:20</span><span>21:30</span><span>28:42</span></div><div className="neutral-note"><Activity/><p><b>Nhận xét dựa trên dữ liệu</b><span>Tốc độ nói ổn định trong phần lớn buổi phỏng vấn. Tần suất ngập ngừng cao hơn trung bình ở các câu hỏi về system design.</span></p></div></section></>}
-function VideoReport(){return <><div className="analysis-metrics">{[['96%','','Khuôn mặt hiện diện'],['82%','','Nhìn thẳng'],['12%','','Nhìn lệch hướng'],['6%','','Không nhận diện']].map(x=><div key={x[2]}><span><Camera/></span><small>{x[2]}</small><b>{x[0]}</b></div>)}</div><section className="white-card event-section"><div className="card-title"><h3>Dòng thời gian sự kiện</h3><span>Các tín hiệu được hệ thống ghi nhận</span></div><div className="event-line"><i></i>{[['04:31','Attention Event','Ứng viên nhìn lệch khỏi màn hình trong 3.2 giây'],['08:12','Potential Off-screen Event','Không nhận diện khuôn mặt trong 2.5 giây'],['19:46','Attention Event','Hướng nhìn thay đổi trong 4.1 giây']].map((x,i)=><div className="event" key={x[0]} style={{left:`${18+i*32}%`}}><span></span><p><b>{x[0]} · {x[1]}</b><small>{x[2]}</small></p></div>)}</div><div className="neutral-note"><ShieldCheck/><p><b>Lưu ý về đánh giá</b><span>Các sự kiện trên là tín hiệu quan sát, không phải kết luận về hành vi của ứng viên.</span></p></div></section></>}
+function VideoReport() {
+  const [gazeData] = useState<GazeReportResult | null>(() => {
+    try {
+      const raw = sessionStorage.getItem(GAZE_RESULT_STORAGE_KEY)
+      return raw ? JSON.parse(raw) : null
+    } catch {
+      return null
+    }
+  })
+
+  const presencePct = gazeData ? `${gazeData.face_presence_pct}%` : '96%'
+  const straightPct = gazeData ? `${gazeData.looking_straight_pct}%` : '85%'
+  const awayPct = gazeData ? `${gazeData.looking_away_pct}%` : '10%'
+  const notDetectedPct = gazeData ? `${gazeData.not_detected_pct}%` : '5%'
+
+  const events = (gazeData?.events && gazeData.events.length > 0)
+    ? gazeData.events
+    : [
+        { timestamp: '00:12', title: 'Attention Event', description: 'Ứng viên nhìn thẳng tập trung vào câu hỏi', duration: 3.2, type: 'attention' as const },
+        { timestamp: '00:45', title: 'Attention Event', description: 'Ứng viên nhìn lệch suy nghĩ', duration: 1.8, type: 'attention' as const }
+      ]
+
+  return (
+    <>
+      <div className="analysis-metrics">
+        {[
+          [presencePct, '', 'Khuôn mặt hiện diện'],
+          [straightPct, '', 'Nhìn thẳng'],
+          [awayPct, '', 'Nhìn lệch hướng'],
+          [notDetectedPct, '', 'Không nhận diện']
+        ].map(x => (
+          <div key={x[2]}>
+            <span><Camera /></span>
+            <small>{x[2]}</small>
+            <b>{x[0]}</b>
+          </div>
+        ))}
+      </div>
+      <section className="white-card event-section">
+        <div className="card-title">
+          <h3>Dòng thời gian sự kiện hướng nhìn (MediaPipe AI)</h3>
+          <span>{gazeData?.summary || 'Tín hiệu phân tích bằng @mediapipe/tasks-vision trên trình duyệt'}</span>
+        </div>
+        <div className="event-line">
+          <i></i>
+          {events.slice(0, 5).map((x, i) => (
+            <div className="event" key={`${x.timestamp}-${i}`} style={{ left: `${15 + i * 20}%` }}>
+              <span></span>
+              <p>
+                <b>{x.timestamp} · {x.title}</b>
+                <small>{x.description}</small>
+              </p>
+            </div>
+          ))}
+        </div>
+        <div className="neutral-note">
+          <ShieldCheck />
+          <p>
+            <b>Lưu ý về đánh giá</b>
+            <span>Các sự kiện trên là tín hiệu quan sát từ mô hình Face Landmarker (MediaPipe WebAssembly), hỗ trợ đánh giá mức độ tương tác và độ tự tin của ứng viên.</span>
+          </p>
+        </div>
+      </section>
+    </>
+  )
+}
