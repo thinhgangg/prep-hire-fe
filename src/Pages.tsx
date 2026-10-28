@@ -12,7 +12,9 @@ import {
 } from './services/interviewApi'
 import { fetchRealJobs, DbJob } from './services/jobApi'
 import { useEffect, useRef, useState } from 'react'
-import { Activity, ArrowDownToLine, ArrowLeft, ArrowRight, BarChart3, Bell, BriefcaseBusiness, CalendarDays, Camera, Check, CheckCircle2, ChevronDown, Circle, CircleHelp, Clock3, Download, FileText, Filter, Headphones, Mail, MapPin, Mic, MicOff, MoreHorizontal, Plus, Search, Settings, ShieldCheck, Sparkles, Square, Star, Target, TrendingUp, Users, Video, VideoOff, Wifi, X } from 'lucide-react'
+import { Activity, ArrowDownToLine, ArrowLeft, ArrowRight, BarChart3, Bell, BriefcaseBusiness, CalendarDays, Camera, Check, CheckCircle2, ChevronDown, Circle, CircleHelp, Clock3, Download, FileText, Filter, Headphones, LogOut, Mail, MapPin, Mic, MicOff, MoreHorizontal, Plus, Search, Settings, ShieldCheck, Sparkles, Square, Star, Target, TrendingUp, Users, Video, VideoOff, Wifi, X } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { useAuth } from './auth/AuthContext'
 import type { Page } from './App'
 import { createSttJob, getSttJob, STT_JOB_STORAGE_KEY, STT_RESULT_STORAGE_KEY, type SttJob, type TranscriptResult } from './services/sttApi'
 
@@ -26,7 +28,13 @@ function SubSidebar({page,go}:Props){
   const [open,setOpen]=useState(false)
   const items:[Page,string,React.ReactNode][]=[['dashboard','Tổng quan',<BarChart3/>],['interviews','Phỏng vấn',<Sparkles/>],['candidates','Ứng viên',<Users/>],['jobs','Công việc',<BriefcaseBusiness/>],['reports','Báo cáo',<FileText/>],['settings','Cài đặt',<Settings/>]]
   const move=(id:Page)=>{go(id);setOpen(false)}
-  return <><button className="mobile-menu" onClick={()=>setOpen(true)}><MoreHorizontal/></button>{open&&<div className="scrim" onClick={()=>setOpen(false)}/>}<aside className={`sidebar unified-sidebar ${open?'open':''}`}><div className="side-logo"><button className="unified-logo" onClick={()=>move('dashboard')}><i><Sparkles/></i><span>Interviewly</span></button><button onClick={()=>setOpen(false)}><X/></button></div><nav><small>KHÔNG GIAN LÀM VIỆC</small>{items.slice(0,5).map(([id,label,icon])=><button key={id} className={(page===id || (id==='interviews'&&['start','analysis','device','room','processing'].includes(page||'')) || (id==='reports'&&page==='report'))?'active':''} onClick={()=>move(id)}>{icon}{label}{id==='interviews'&&<span>12</span>}</button>)}<small>QUẢN LÝ</small><button className={page==='settings'?'active':''} onClick={()=>move('settings')}><Settings/> Cài đặt</button><button><CircleHelp/> Trung tâm hỗ trợ</button></nav><div className="upgrade"><div className="spark"><Sparkles size={18}/></div><b>Mở khóa sức mạnh AI</b><p>Nâng cấp để phỏng vấn không giới hạn.</p><button>Tìm hiểu thêm</button></div><div className="profile"><div className="avatar">HN</div><div><b>Hoàng Nam</b><small>Talent Lead</small></div><button><ChevronDown/></button></div></aside></>
+  const { user, logout } = useAuth()
+  const navigate = useNavigate()
+  const handleLogout = () => {
+    logout()
+    navigate('/login')
+  }
+  return <><button className="mobile-menu" onClick={()=>setOpen(true)}><MoreHorizontal/></button>{open&&<div className="scrim" onClick={()=>setOpen(false)}/>}<aside className={`sidebar unified-sidebar ${open?'open':''}`}><div className="side-logo"><button className="unified-logo" onClick={()=>move('dashboard')}><i><Sparkles/></i><span>Interviewly</span></button><button onClick={()=>setOpen(false)}><X/></button></div><nav><small>KHÔNG GIAN LÀM VIỆC</small>{items.slice(0,5).map(([id,label,icon])=><button key={id} className={(page===id || (id==='interviews'&&['start','analysis','device','room','processing'].includes(page||'')) || (id==='reports'&&page==='report'))?'active':''} onClick={()=>move(id)}>{icon}{label}{id==='interviews'&&<span>12</span>}</button>)}<small>QUẢN LÝ</small><button className={page==='settings'?'active':''} onClick={()=>move('settings')}><Settings/> Cài đặt</button><button><CircleHelp/> Trung tâm hỗ trợ</button></nav><div className="upgrade"><div className="spark"><Sparkles size={18}/></div><b>Mở khóa sức mạnh AI</b><p>Nâng cấp để phỏng vấn không giới hạn.</p><button>Tìm hiểu thêm</button></div><div className="profile"><div className="avatar">{user?.name ? user.name.split(' ').map(x=>x[0]).join('').slice(-2) : 'HN'}</div><div><b>{user?.name || 'Hoàng Nam'}</b><small>Quản trị viên</small></div><button onClick={handleLogout} title="Đăng xuất" style={{ border: 0, background: 'none', cursor: 'pointer', padding: '6px', color: '#6b7280', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><LogOut size={16}/></button></div></aside></>
 }
 
 function PageHeader({eyebrow,title,desc,action}: {eyebrow?:string;title:string;desc:string;action?:React.ReactNode}){
