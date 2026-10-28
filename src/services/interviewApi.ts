@@ -1,4 +1,4 @@
-const AI_API_BASE = (import.meta.env.VITE_AI_API_BASE_URL || 'http://localhost:9001').replace(/\/$/, '')
+const AI_API_BASE = (import.meta.env.VITE_AI_API_BASE_URL || 'http://localhost:8001').replace(/\/$/, '')
 
 export type TurnEvidenceScores = {
   answer_relevance: number

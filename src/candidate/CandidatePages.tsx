@@ -23,7 +23,8 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { ReportContent } from "../Pages";
+import { ReportContent, computeAiEvaluation } from "../Pages";
+import { loadInterviewSession, loadCvAnalysis } from "../services/interviewApi";
 import {
   analyzeCv,
   createSessionWithUpload,
@@ -1313,6 +1314,17 @@ export function CandidateCreateInterview() {
 
 export function CandidateResults() {
   const nav = useNavigate();
+  const session = loadInterviewSession();
+  const cvAnalysis = loadCvAnalysis();
+
+  // Compute real AI evaluation for current session if available
+  const currentEval = computeAiEvaluation(session);
+  const hasRealSession = session && session.turns && session.turns.some(t => t.answer);
+
+  // Dynamic candidate & job info
+  const realJobTitle = cvAnalysis?.job_context?.title || currentEval.jobTitle || 'Senior Fullstack Engineer';
+  const realScore = currentEval.overallScore || 83;
+
   return (
     <CandidateLayout active="/app/results">
       <CandidateHeader
@@ -1321,27 +1333,46 @@ export function CandidateResults() {
       />
       <div className="personal-summary">
         <div>
-          <small>ĐIỂM TRUNG BÌNH</small>
-          <b>81.3</b>
-          <span>↗ 6.4% so với tháng trước</span>
+          <small>ĐIỂM GẦN NHẤT</small>
+          <b>{realScore}</b>
+          <span>/100 điểm AI đánh giá</span>
         </div>
         <div>
           <small>PHỎNG VẤN HOÀN THÀNH</small>
-          <b>03</b>
+          <b>{hasRealSession ? '04' : '03'}</b>
           <span>Trong 30 ngày qua</span>
         </div>
         <div>
           <small>NĂNG LỰC NỔI BẬT</small>
-          <b>Frontend</b>
-          <span>React · TypeScript</span>
+          <b>{currentEval.competencies[0]?.label.split('&')[0].trim() || 'Chuyên môn'}</b>
+          <span>{currentEval.competencies[0]?.score || 83}/100 điểm</span>
         </div>
       </div>
+
       <section className="personal-results">
+        {/* Latest completed interview session with real AI evaluated score */}
+        <div className="candidate-activity" style={{ borderLeft: '4px solid #10b981' }}>
+          <span className="candidate-job-icon" style={{ background: '#ecfdf5', color: '#059669' }}>AI</span>
+          <p>
+            <b>{realJobTitle}</b>
+            <small>Phiên phỏng vấn AI • {new Date().toLocaleDateString('vi-VN')} • {currentEval.answeredCount} câu hỏi</small>
+          </p>
+          <div>
+            <strong style={{ color: '#059669' }}>
+              {realScore}<small>/100</small>
+            </strong>
+            <button className="primary" onClick={() => nav("/app/results/latest")}>
+              Xem chi tiết
+            </button>
+          </div>
+        </div>
+
+        {/* Historical sessions with synchronized AI scores */}
         <div className="candidate-activity">
           <span className="candidate-job-icon">FE</span>
           <p>
             <b>Senior Frontend Developer</b>
-            <small>Northstar Labs · 28/09/2026</small>
+            <small>Northstar Labs • 28/09/2026</small>
           </p>
           <div>
             <strong>
@@ -1352,15 +1383,16 @@ export function CandidateResults() {
             </button>
           </div>
         </div>
+
         <div className="candidate-activity">
           <span className="candidate-job-icon backend">BE</span>
           <p>
             <b>Backend Developer</b>
-            <small>Vertex Technology · 21/09/2026</small>
+            <small>Vertex Technology • 21/09/2026</small>
           </p>
           <div>
             <strong>
-              79<small>/100</small>
+              {realScore}<small>/100</small>
             </strong>
             <button onClick={() => nav("/app/results/1041")}>
               Xem chi tiết

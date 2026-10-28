@@ -1,4 +1,38 @@
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8002').replace(/\/$/, '')
+export function getSttApiBase(): string {
+  const custom = typeof window !== 'undefined' ? (localStorage.getItem('colab_stt_url') || sessionStorage.getItem('colab_stt_url')) : null
+  if (custom && custom.trim()) {
+    return custom.trim().replace(/\/$/, '')
+  }
+  return (
+    import.meta.env.VITE_BE_URL ||
+    import.meta.env.VITE_API_BASE_URL ||
+    'http://localhost:8002'
+  ).replace(/\/$/, '')
+}
+
+export function setCustomSttUrl(url: string) {
+  if (typeof window === 'undefined') return
+  if (url && url.trim()) {
+    localStorage.setItem('colab_stt_url', url.trim().replace(/\/$/, ''))
+  } else {
+    localStorage.removeItem('colab_stt_url')
+  }
+}
+
+export async function checkSttHealth(): Promise<{ ok: boolean; model?: string; device?: string; url: string }> {
+  const base = getSttApiBase()
+  try {
+    const res = await fetch(`${base}/health`, {
+      headers: { 'ngrok-skip-browser-warning': 'true' },
+      signal: AbortSignal.timeout(3500),
+    })
+    if (res.ok) {
+      const data = await res.json()
+      return { ok: true, model: data.model || 'turbo', device: data.device || 'cuda', url: base }
+    }
+  } catch {}
+  return { ok: false, url: base }
+}
 
 export type TranscriptEdit = {
   start: number
@@ -52,13 +86,14 @@ export async function createSttJob(
   interviewId = 'demo',
   questionId = 'question-04',
 ): Promise<SttJob> {
+  const base = getSttApiBase()
   const form = new FormData()
   const extension = audio.type.includes('ogg') ? 'ogg' : audio.type.includes('mp4') ? 'm4a' : 'webm'
   form.append('audio', audio, `answer.${extension}`)
   form.append('interview_id', interviewId)
   form.append('question_id', questionId)
   form.append('context', context)
-  const response = await fetch(`${API_BASE}/api/v1/stt/jobs`, {
+  const response = await fetch(`${base}/api/v1/stt/jobs`, {
     method: 'POST',
     headers: { 'ngrok-skip-browser-warning': 'true' },
     body: form,
@@ -67,7 +102,8 @@ export async function createSttJob(
 }
 
 export async function getSttJob(jobId: string): Promise<SttJob> {
-  const response = await fetch(`${API_BASE}/api/v1/stt/jobs/${jobId}`, {
+  const base = getSttApiBase()
+  const response = await fetch(`${base}/api/v1/stt/jobs/${jobId}`, {
     headers: { 'ngrok-skip-browser-warning': 'true' },
   })
   return parseResponse<SttJob>(response)
