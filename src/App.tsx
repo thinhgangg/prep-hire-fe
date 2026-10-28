@@ -1,16 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowRight, BarChart3, Bell, BriefcaseBusiness, Check, ChevronDown, CircleHelp, FileText, Home, LogOut, Menu, Search, Settings, Sparkles, UploadCloud, UserRound, Users, X } from 'lucide-react'
 import { fetchRealJobs, DbJob } from './services/jobApi'
-import { createSessionWithUpload } from './services/interviewApi'
+import { createSessionWithUpload, saveInterviewSession } from './services/interviewApi'
 import { AnalysisPage, CandidatesPage, DeviceCheckPage, InterviewRoom, InterviewsPage, JobsPage, ProcessingPage, ReportPage, ReportsPage, SettingsPage } from './Pages'
 
 export type Page = 'login' | 'dashboard' | 'start' | 'interviews' | 'candidates' | 'jobs' | 'reports' | 'settings' | 'analysis' | 'device' | 'room' | 'processing' | 'report'
-type Job = { id: number; title: string; department: string; type: string; location: string; accent: string; skills: string[] }
+type Job = { id: number; title: string; department: string; type: string; location: string; accent: string; skills: string[]; description: string }
 
 const jobs: Job[] = [
-  { id: 1, title: 'Senior Frontend Developer', department: 'Product & Engineering', type: 'Toàn thời gian', location: 'Hà Nội · Hybrid', accent: '#5b5bd6', skills: ['React', 'TypeScript', 'System Design'] },
-  { id: 2, title: 'Backend Developer', department: 'Engineering', type: 'Toàn thời gian', location: 'TP. Hồ Chí Minh', accent: '#12805c', skills: ['Node.js', 'PostgreSQL', 'REST API'] },
-  { id: 3, title: 'Product Designer', department: 'Product & Design', type: 'Toàn thời gian', location: 'Remote', accent: '#d97745', skills: ['Figma', 'UX Research', 'Design System'] },
+  { id: 1, title: 'Senior Frontend Developer', department: 'Product & Engineering', type: 'Toàn thời gian', location: 'Hà Nội · Hybrid', accent: '#5b5bd6', skills: ['React', 'TypeScript', 'System Design'], description: 'Tuyển Senior Frontend Developer có kinh nghiệm ReactJS, TypeScript, Next.js, kiểm thử giao diện và system design. Ứng viên cần có khả năng tối ưu hiệu năng, xây dựng component tái sử dụng và phối hợp với backend qua REST API hoặc GraphQL.' },
+  { id: 2, title: 'Backend Developer', department: 'Engineering', type: 'Toàn thời gian', location: 'TP. Hồ Chí Minh', accent: '#12805c', skills: ['Node.js', 'PostgreSQL', 'REST API'], description: 'Tuyển Backend Developer có kinh nghiệm Node.js, PostgreSQL, thiết kế REST API, xác thực và triển khai dịch vụ. Ứng viên cần hiểu database transaction, caching, bảo mật API, Docker và kiến trúc hệ thống có khả năng mở rộng.' },
+  { id: 3, title: 'Product Designer', department: 'Product & Design', type: 'Toàn thời gian', location: 'Remote', accent: '#d97745', skills: ['Figma', 'UX Research', 'Design System'], description: 'Tuyển Product Designer có kinh nghiệm Figma, UX Research và xây dựng Design System. Ứng viên cần trình bày được quy trình nghiên cứu người dùng, thiết kế prototype, kiểm thử usability và hợp tác với product manager cùng lập trình viên.' },
 ]
 
 function Logo({ light = false }: { light?: boolean }) {
@@ -206,6 +206,7 @@ export function StartInterview({ go }: { go: (p: Page) => void }) {
       })
 
       if (session && session.session_id) {
+        saveInterviewSession(session)
         sessionStorage.setItem('current_session_id', session.session_id)
         if (session.current_question) {
           sessionStorage.setItem('current_question_text', session.current_question.question)

@@ -1,4 +1,15 @@
-import { createStoredSession, createCustomSession, submitInterviewAnswer, getEvidenceSummary } from './services/interviewApi'
+import {
+  createStoredSession,
+  createCustomSession,
+  submitInterviewAnswer,
+  getEvidenceSummary,
+  loadCvAnalysis,
+  loadInterviewSession,
+  saveInterviewSession,
+  type CvAnalysis,
+  type InterviewSession,
+  type InterviewTurn,
+} from './services/interviewApi'
 import { fetchRealJobs, DbJob } from './services/jobApi'
 import { useEffect, useRef, useState } from 'react'
 import { Activity, ArrowDownToLine, ArrowLeft, ArrowRight, BarChart3, Bell, BriefcaseBusiness, CalendarDays, Camera, Check, CheckCircle2, ChevronDown, Circle, CircleHelp, Clock3, Download, FileText, Filter, Headphones, Mail, MapPin, Mic, MicOff, MoreHorizontal, Plus, Search, Settings, ShieldCheck, Sparkles, Square, Star, Target, TrendingUp, Users, Video, VideoOff, Wifi, X } from 'lucide-react'
@@ -127,11 +138,19 @@ export function SettingsPage({go}:Props){
   return <Shell page="settings" go={go}><PageHeader title="Cài đặt" desc="Quản lý tài khoản và tùy chỉnh không gian làm việc."/><div className="settings-layout"><aside>{['Hồ sơ','Không gian làm việc','Thông báo','Tích hợp','Bảo mật'].map(t=><button className={tab===t?'active':''} onClick={()=>setTab(t)} key={t}>{t}</button>)}</aside><section className="settings-card"><div><h2>{tab}</h2><p>Cập nhật thông tin và thiết lập {tab.toLowerCase()} của bạn.</p></div>{tab==='Hồ sơ'?<><div className="photo-row"><div className="avatar big">HN</div><div><button className="outline">Thay đổi ảnh</button><p>JPG hoặc PNG, tối đa 2MB.</p></div></div><div className="form-grid"><label>Họ và tên<input defaultValue="Hoàng Nam"/></label><label>Chức danh<input defaultValue="Talent Lead"/></label><label>Email công việc<input defaultValue="nam.hoang@interviewly.vn"/></label><label>Số điện thoại<input defaultValue="+84 912 345 678"/></label></div><label className="full-label">Giới thiệu<textarea defaultValue="Talent Acquisition Lead với hơn 6 năm kinh nghiệm xây dựng đội ngũ sản phẩm và công nghệ."/></label></>:<div className="setting-options">{['Cho phép thông báo qua email','Nhận báo cáo hàng tuần','Tự động lưu bản ghi phỏng vấn','Bật xác thực hai lớp'].map((x,i)=><label key={x}><span><b>{x}</b><small>Thiết lập này áp dụng cho toàn bộ không gian làm việc.</small></span><input type="checkbox" defaultChecked={i<2}/><i></i></label>)}</div>}<div className="settings-save"><button className="primary">Lưu thay đổi</button></div></section></div></Shell>
 }
 
+function CvAnalysisPanel({analysis}:{analysis:CvAnalysis}){
+ const profile=analysis.extracted_profile,match=analysis.job_match,gap=analysis.gap_analysis,review=analysis.ai_review
+ const breakdownLabels:Record<string,string>={skillMatch:'Kỹ năng',experienceMatch:'Kinh nghiệm',levelMatch:'Cấp độ',salaryMatch:'Lương',locationMatch:'Địa điểm',keywordMatch:'Từ khóa',titleMatch:'Chức danh',atsReadability:'Khả năng đọc ATS'}
+ return <section className="cv-analysis-result"><div className="cv-result-heading"><div><span className="pill"><Sparkles/> KẾT QUẢ PHÂN TÍCH CV</span><h2>Mức độ phù hợp với {analysis.job_context.title}</h2><p>{review?.summary||'Kết quả được tổng hợp từ hồ sơ ứng viên và yêu cầu công việc.'}</p></div><div className="cv-match-score"><b>{match.score}</b><small>/100</small><span>{review?.verdict||'Điểm phù hợp'}</span></div></div><div className="cv-result-grid"><article><h3>Hồ sơ trích xuất</h3><dl><div><dt>Cấp độ</dt><dd>{profile.cv_level}</dd></div><div><dt>Kinh nghiệm</dt><dd>{profile.cv_years_experience} năm</dd></div><div><dt>Chứng chỉ</dt><dd>{profile.cv_certifications.join(', ')||'Chưa xác định'}</dd></div></dl><h4>Kỹ năng trong CV</h4><div className="cv-tags">{profile.cv_skills.length?profile.cv_skills.map(skill=><span key={skill.name}>{skill.name} · {Math.round(skill.proficiency*100)}%</span>):<em>Chưa trích xuất được kỹ năng</em>}</div></article><article><h3>Chi tiết mức độ phù hợp</h3><div className="cv-breakdown">{Object.entries(match.scoreBreakdownJson).filter(([,value])=>value!==null).map(([key,value])=><div key={key}><span>{breakdownLabels[key]||key}<b>{value}%</b></span><i><em style={{width:`${Math.max(0,Math.min(100,Number(value)))}%`}}></em></i></div>)}</div></article><article><h3>Kỹ năng phù hợp</h3><div className="cv-tags positive">{match.matchedSkills.length?match.matchedSkills.map(skill=><span key={skill}><Check/> {skill}</span>):<em>Chưa có kỹ năng khớp</em>}</div><h4>Kỹ năng còn thiếu</h4><div className="cv-tags warning">{match.missingSkills.length?match.missingSkills.map(skill=><span key={skill}>{skill}</span>):<em>Không có kỹ năng bắt buộc bị thiếu</em>}</div><h4>Kỹ năng nên ưu tiên</h4><div className="cv-tags">{gap.recommendedSkills.map(skill=><span key={skill}>{skill}</span>)}</div></article><article><h3>Nhận xét AI</h3><div className="cv-review-columns"><div><h4>Điểm mạnh</h4><ul>{(review?.strengths||match.matchedSkills).map(item=><li key={item}>{item}</li>)}</ul></div><div><h4>Điểm cần chú ý</h4><ul>{(review?.concerns||match.missingSkills).map(item=><li key={item}>{item}</li>)}</ul></div></div>{review?.recommendations?.length?<><h4>Khuyến nghị</h4><ul>{review.recommendations.map(item=><li key={item}>{item}</li>)}</ul></>:null}</article></div>{analysis.roadmap.phases.length>0&&<div className="cv-roadmap"><div><h3>Roadmap đề xuất</h3><span>{analysis.roadmap.total_weeks} tuần · {analysis.roadmap.difficulty_level}</span></div><div>{analysis.roadmap.phases.map(phase=><article key={phase.phase}><b>Giai đoạn {phase.phase}</b><h4>{phase.title}</h4><small>{phase.duration_weeks} tuần</small><p>{phase.skills.map(skill=>skill.skill_name).join(' · ')}</p></article>)}</div></div>}</section>
+}
+
 export function AnalysisPage({go}:Props){
  const [progress,setProgress]=useState(0)
+ const [session]=useState<InterviewSession|null>(()=>loadInterviewSession())
+ const [analysis]=useState<CvAnalysis|null>(()=>loadCvAnalysis())
  useEffect(()=>{const t=setInterval(()=>setProgress(p=>Math.min(p+2,100)),70);return()=>clearInterval(t)},[])
  const done=progress===100
- return <Shell page="analysis" go={go}><div className="flow-header"><button onClick={()=>go('start')}><ArrowLeft/></button><div><small>PHỎNG VẤN #INT-2026-1042</small><h1>AI đang chuẩn bị buổi phỏng vấn</h1></div><span className="private"><ShieldCheck/> Dữ liệu được bảo mật</span></div><div className="analysis-layout"><section className="analysis-main"><div className={`ai-orb ${done?'done':''}`}><Sparkles/></div><h2>{done?'Bộ câu hỏi đã sẵn sàng':'Đang phân tích hồ sơ ứng viên'}</h2><p>{done?'AI đã tạo bộ câu hỏi cá nhân hóa dựa trên CV và yêu cầu công việc.':'AI đang đọc CV, đối chiếu yêu cầu công việc và xác định những năng lực cần đánh giá.'}</p><div className="analysis-progress"><i style={{width:`${progress}%`}}></i></div><span className="progress-label"><b>{progress}%</b><small>{done?'Hoàn tất':'Thường mất khoảng 30 giây'}</small></span><div className="analysis-steps">{['Phân tích CV và kinh nghiệm','Đối chiếu Job Description','Xác định kỹ năng cần đánh giá','Tạo câu hỏi phỏng vấn'].map((x,i)=>{const threshold=(i+1)*25;return <div className={progress>=threshold?'done':progress>=threshold-24?'active':''} key={x}><i>{progress>=threshold?<Check/>:<Circle/>}</i><span><b>{x}</b><small>{progress>=threshold?'Hoàn tất':progress>=threshold-24?'Đang xử lý…':'Đang chờ'}</small></span></div>})}</div>{done&&<button className="primary analysis-next" onClick={()=>go('device')}>Tiếp tục kiểm tra thiết bị <ArrowRight/></button>}</section><aside className="analysis-side"><h3>Thông tin phiên</h3><div className="candidate-summary"><span>MA</span><p><b>Nguyễn Minh Anh</b><small>Senior Frontend Developer</small></p></div><dl><div><dt>Kinh nghiệm</dt><dd>5 năm</dd></div><div><dt>Kỹ năng nổi bật</dt><dd><span>React</span><span>TypeScript</span><span>Node.js</span></dd></div><div><dt>Cấu trúc dự kiến</dt><dd>12 câu hỏi · 30 phút</dd></div></dl><div className="question-mix"><h4>Bộ câu hỏi</h4>{[['Chuyên môn',5],['Kinh nghiệm',3],['Giải quyết vấn đề',3],['Kỹ năng mềm',1]].map(([x,n])=><div key={x}><span>{x}</span><b>{n}</b></div>)}</div></aside></div></Shell>
+ return <Shell page="analysis" go={go}><div className="flow-header"><button onClick={()=>go('start')}><ArrowLeft/></button><div><small>PHỎNG VẤN #{session?.session_id.slice(0,8).toUpperCase()||'CHƯA TẠO'}</small><h1>AI đang chuẩn bị buổi phỏng vấn</h1></div><span className="private"><ShieldCheck/> Dữ liệu được bảo mật</span></div><div className="analysis-layout"><section className="analysis-main"><div className={`ai-orb ${done?'done':''}`}><Sparkles/></div><h2>{done?'Câu hỏi đầu tiên đã sẵn sàng':'Đang phân tích hồ sơ ứng viên'}</h2><p>{done?(session?.current_question?.question||'AI đã tạo bộ câu hỏi cá nhân hóa dựa trên CV và yêu cầu công việc.'):'AI đang đọc CV, đối chiếu yêu cầu công việc và xác định những năng lực cần đánh giá.'}</p><div className="analysis-progress"><i style={{width:`${progress}%`}}></i></div><span className="progress-label"><b>{progress}%</b><small>{done?'Hoàn tất':'Đang chuẩn bị giao diện'}</small></span><div className="analysis-steps">{['Phân tích CV và kinh nghiệm','Đối chiếu Job Description','Xác định kỹ năng cần đánh giá','Tạo câu hỏi phỏng vấn'].map((x,i)=>{const threshold=(i+1)*25;return <div className={progress>=threshold?'done':progress>=threshold-24?'active':''} key={x}><i>{progress>=threshold?<Check/>:<Circle/>}</i><span><b>{x}</b><small>{progress>=threshold?'Hoàn tất':progress>=threshold-24?'Đang xử lý…':'Đang chờ'}</small></span></div>})}</div>{done&&session?.current_question&&<button className="primary analysis-next" onClick={()=>go('device')}>Tiếp tục kiểm tra thiết bị <ArrowRight/></button>}</section><aside className="analysis-side"><h3>Thông tin phiên</h3><div className="candidate-summary"><span>AI</span><p><b>Phỏng vấn thích ứng</b><small>{session?.current_stage||'Đang chuẩn bị'}</small></p></div><dl><div><dt>Ngôn ngữ</dt><dd>{session?.language==='vi'?'Tiếng Việt':'English'}</dd></div><div><dt>Nguồn câu hỏi</dt><dd><span>CV</span><span>JD</span><span>AI Ranker</span></dd></div><div><dt>Cấu trúc dự kiến</dt><dd>{session?.max_questions||8} câu hỏi</dd></div></dl></aside></div>{analysis&&<CvAnalysisPanel analysis={analysis}/>}</Shell>
 }
 
 export function DeviceCheckPage({go}:Props){
@@ -147,13 +166,24 @@ export function InterviewRoom({ go }: Props) {
   const [error, setError] = useState('')
   const [secs, setSecs] = useState(0)
 
-  // AI Interview State
-  const [sessionId, setSessionId] = useState(() => sessionStorage.getItem('current_session_id') || '')
-  const [questionText, setQuestionText] = useState(() => sessionStorage.getItem('current_question_text') || '')
-  const [criterion, setCriterion] = useState(() => sessionStorage.getItem('current_question_criterion') || 'Kiến thức chuyên môn')
-  const [stage, setStage] = useState(() => sessionStorage.getItem('current_question_stage') || 'Chuyên môn')
-  const [turnIndex, setTurnIndex] = useState(() => parseInt(sessionStorage.getItem('current_turn_index') || '0', 10))
-  const [totalQuestions, setTotalQuestions] = useState(() => parseInt(sessionStorage.getItem('total_questions') || '5', 10))
+  // AI Interview State - dynamically loaded from An's session storage with fallback to individual keys
+  const [session, setSession] = useState<InterviewSession | null>(() => loadInterviewSession())
+  const [sessionId, setSessionId] = useState(() => session?.session_id || sessionStorage.getItem('current_session_id') || '')
+  const [questionText, setQuestionText] = useState(
+    () => session?.current_question?.question || sessionStorage.getItem('current_question_text') || ''
+  )
+  const [criterion, setCriterion] = useState(
+    () => session?.current_question?.criterion || sessionStorage.getItem('current_question_criterion') || 'Kiến thức chuyên môn'
+  )
+  const [stage, setStage] = useState(
+    () => session?.current_question?.stage || session?.current_stage || sessionStorage.getItem('current_question_stage') || 'Chuyên môn'
+  )
+  const [turnIndex, setTurnIndex] = useState(
+    () => session?.current_question?.turn_index ?? parseInt(sessionStorage.getItem('current_turn_index') || '0', 10)
+  )
+  const [totalQuestions, setTotalQuestions] = useState(
+    () => session?.max_questions ?? parseInt(sessionStorage.getItem('total_questions') || '5', 10)
+  )
   const [textAnswer, setTextAnswer] = useState('')
   const [showTextInput, setShowTextInput] = useState(false)
   const [evaluating, setEvaluating] = useState(false)
@@ -190,7 +220,7 @@ export function InterviewRoom({ go }: Props) {
         const lastTurn = result.turns[result.turns.length - 1]
         turnScores = lastTurn.answer_evidence?.scores || lastTurn.answer_evidence?.applicable_scores || {}
         sessionStorage.setItem('last_turn_scores', JSON.stringify(lastTurn.answer_evidence || {}))
-        sessionStorage.setItem('last_turn_question', lastTurn.question_text || questionText)
+        sessionStorage.setItem('last_turn_question', lastTurn.question || (lastTurn as any).question_text || questionText)
         sessionStorage.setItem('last_turn_answer', ansText)
       }
 
@@ -207,6 +237,10 @@ export function InterviewRoom({ go }: Props) {
       })
       sessionStorage.setItem('interview_turns_history', JSON.stringify(history))
 
+      // Update session in An's storage format
+      saveInterviewSession(result)
+      setSession(result)
+
       // Check if more questions remain
       if (result.status === 'completed' || !result.current_question || turnIndex + 1 >= totalQuestions) {
         sessionStorage.setItem('interview_completed', 'true')
@@ -219,7 +253,7 @@ export function InterviewRoom({ go }: Props) {
         setQuestionText(nextQ)
         setCriterion(nextCrit)
         setStage(nextStage)
-        const nextIdx = turnIndex + 1
+        const nextIdx = result.current_question.turn_index ?? (turnIndex + 1)
         setTurnIndex(nextIdx)
         sessionStorage.setItem('current_turn_index', String(nextIdx))
         sessionStorage.setItem('current_question_text', nextQ)
@@ -257,7 +291,7 @@ export function InterviewRoom({ go }: Props) {
         setInRoomStatus('Whisper đang nhận dạng giọng nói của bạn...')
         try {
           const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' })
-          const job = await createSttJob(blob, `Câu hỏi: ${questionText}`)
+          const job = await createSttJob(blob, `Câu hỏi: ${questionText}. Giai đoạn: ${stage}`, sessionId, `turn-${turnIndex}`)
           
           // Poll STT job seamlessly inside room without jumping to processing page
           let attempts = 0
@@ -475,16 +509,47 @@ export function InterviewRoom({ go }: Props) {
   )
 }
 export function ProcessingPage({go}:Props){
- const [job,setJob]=useState<SttJob|null>(null),[error,setError]=useState('')
- useEffect(()=>{const jobId=sessionStorage.getItem(STT_JOB_STORAGE_KEY);if(!jobId){setError('Chưa có bản ghi âm. Hãy quay lại phòng phỏng vấn và ghi một câu trả lời.');return}let cancelled=false;const poll=async()=>{try{const next=await getSttJob(jobId);if(cancelled)return;setJob(next);if(next.status==='completed'&&next.result){sessionStorage.setItem(STT_RESULT_STORAGE_KEY,JSON.stringify(next.result));return}if(next.status==='failed'){setError(next.error||'Whisper xử lý thất bại');return}timer=window.setTimeout(poll,1500)}catch(reason){if(!cancelled){setError(reason instanceof Error?reason.message:'Không thể đọc trạng thái xử lý')}}};let timer=window.setTimeout(poll,100);return()=>{cancelled=true;window.clearTimeout(timer)}},[])
- const value=job?.progress||0,failed=Boolean(error),done=job?.status==='completed'
+ const [job,setJob]=useState<SttJob|null>(null),[error,setError]=useState(''),[advancing,setAdvancing]=useState(false),[nextSession,setNextSession]=useState<InterviewSession|null>(null)
+ const [sttElapsedMs,setSttElapsedMs]=useState(0)
+ const sttStartedAt=useRef(performance.now())
+ useEffect(()=>{if(job?.result||error)return;const timer=window.setInterval(()=>setSttElapsedMs(performance.now()-sttStartedAt.current),100);return()=>window.clearInterval(timer)},[job?.result,error])
+ useEffect(()=>{const jobId=sessionStorage.getItem(STT_JOB_STORAGE_KEY);if(!jobId){setError('Chưa có bản ghi âm. Hãy quay lại phòng phỏng vấn và ghi một câu trả lời.');return}let cancelled=false;const poll=async()=>{try{const next=await getSttJob(jobId);if(cancelled)return;setJob(next);if(next.status==='completed'&&next.result){sessionStorage.setItem(STT_RESULT_STORAGE_KEY,JSON.stringify(next.result));const current=loadInterviewSession();if(current){setAdvancing(true);const updated=await submitInterviewAnswer(current.session_id,next.result.corrected_transcript);if(cancelled)return;saveInterviewSession(updated);setNextSession(updated);setAdvancing(false)}return}if(next.status==='failed'){setError(next.error||'Whisper xử lý thất bại');return}timer=window.setTimeout(poll,400)}catch(reason){if(!cancelled){setAdvancing(false);setError(reason instanceof Error?reason.message:'Không thể xử lý câu trả lời')}}};let timer=window.setTimeout(poll,100);return()=>{cancelled=true;window.clearTimeout(timer)}},[])
+ const value=job?.progress||0,failed=Boolean(error),done=job?.status==='completed'&&!advancing&&!error
  const stages=[['Audio đã tải lên',['queued','loading_model','transcribing','correcting_text','completed']],['Whisper nhận dạng',['transcribing','correcting_text','completed']],['Hiệu chỉnh thuật ngữ',['correcting_text','completed']],['Transcript sẵn sàng',['completed']]] as const
- return <div className="processing-page"><header><button className="sub-logo" onClick={()=>go('dashboard')}><i><Sparkles/></i>Interviewly</button></header><main><div className="process-orbit"><div><Sparkles/></div><i></i><i></i><i></i></div><span className="pill"><Activity/> {failed?'XỬ LÝ GẶP LỖI':done?'ĐÃ HOÀN TẤT':'WHISPER ĐANG XỬ LÝ'}</span><h1>{failed?'Không thể tạo transcript':done?'Transcript đã sẵn sàng':'Đang chuyển giọng nói thành văn bản'}</h1><p>{error||'Audio đang được nhận dạng và hiệu chỉnh thuật ngữ IT bằng datastore đã xác minh.'}</p><div className="process-progress"><span><i style={{width:`${value}%`}}></i></span><b>{value}%</b></div><div className="process-steps">{stages.map(([label,activeStages],i)=>{const active=job?activeStages.includes(job.stage as never):false;const complete=done||Boolean(job&&stages[i+1]?.[1].includes(job.stage as never));return <div className={complete?'done':active?'current':''} key={label}><i>{complete?<Check/>:active?<Activity/>:<Circle/>}</i><span><b>{label}</b><small>{complete?'Hoàn tất':active?'Đang xử lý…':'Đang chờ'}</small></span></div>})}</div>{done&&<button className="primary process-done" onClick={()=>go('report')}>Xem transcript <ArrowRight/></button>}{failed&&<button className="primary process-done" onClick={()=>go('room')}>Ghi âm lại <ArrowLeft/></button>}<small>Model được load lần đầu có thể mất thêm thời gian. Bạn có thể giữ trang này mở.</small></main></div>
+ return <div className="processing-page"><header><button className="sub-logo" onClick={()=>go('dashboard')}><i><Sparkles/></i>Interviewly</button></header><main><div className="process-orbit"><div><Sparkles/></div><i></i><i></i><i></i></div><span className="pill"><Activity/> {failed?'XỬ LÝ GẶP LỖI':done?'ĐÃ HOÀN TẤT':advancing?'AI ĐANG TẠO CÂU TIẾP THEO':'WHISPER ĐANG XỬ LÝ'}</span><h1>{failed?'Không thể xử lý câu trả lời':done?'Câu trả lời đã được xử lý':advancing?'Đang đánh giá transcript':'Đang chuyển giọng nói thành văn bản'}</h1><p>{error||(advancing?'AI đang dùng câu trả lời để tạo câu hỏi phỏng vấn thích ứng tiếp theo.':'Audio đang được nhận dạng và hiệu chỉnh thuật ngữ IT bằng datastore đã xác minh.')}</p><div className="process-progress"><span><i style={{width:`${value}%`}}></i></span><b>{value}%</b></div><div className="stt-timing"><div><small>WHISPER NHẬN DẠNG</small><b>{job?.result?.inference_ms!=null?`${(job.result.inference_ms/1000).toFixed(2)} giây`:`${(sttElapsedMs/1000).toFixed(1)} giây`}</b></div><div><small>TỔNG XỬ LÝ STT</small><b>{job?.result?`${(job.result.latency_ms/1000).toFixed(2)} giây`:'Đang đo…'}</b></div></div><div className="process-steps">{stages.map(([label,activeStages],i)=>{const active=job?activeStages.includes(job.stage as never):false;const complete=done||Boolean(job&&stages[i+1]?.[1].includes(job.stage as never));return <div className={complete?'done':active?'current':''} key={label}><i>{complete?<Check/>:active?<Activity/>:<Circle/>}</i><span><b>{label}</b><small>{complete?'Hoàn tất':active?'Đang xử lý…':'Đang chờ'}</small></span></div>})}</div>{done&&<button className="primary process-done" onClick={()=>go(nextSession?.current_question?'room':'report')}>{nextSession?.current_question?'Câu hỏi tiếp theo':'Xem transcript'} <ArrowRight/></button>}{failed&&<button className="primary process-done" onClick={()=>go('room')}>Quay lại phòng phỏng vấn <ArrowLeft/></button>}<small>Model được load lần đầu có thể mất thêm thời gian. Bạn có thể giữ trang này mở.</small></main></div>
 }
 
 function ScoreBar({label,value}:{label:string;value:number}){return <div className="score-bar"><span><b>{label}</b><strong>{value}<small>/100</small></strong></span><i><em style={{width:`${value}%`}}></em></i></div>}
 export function ReportPage({go}:Props){
- return <Shell page="report" go={go} wide><ReportContent onBack={()=>go('reports')}/></Shell>
+ return <Shell page="report" go={go} wide><LiveInterviewReport onBack={()=>go('reports')}/></Shell>
+}
+
+const SCORE_LABELS:Record<string,string>={answer_relevance:'Đúng trọng tâm',technical_correctness:'Độ chính xác kỹ thuật',expected_signal_coverage:'Mức độ đầy đủ',reasoning_quality:'Chất lượng lập luận',evidence_quality:'Dẫn chứng thực tế',clarity_conciseness:'Rõ ràng, súc tích',consistency:'Tính nhất quán'}
+function evidenceScores(turn:InterviewTurn){return turn.answer_evidence?.applicable_scores||turn.answer_evidence?.scores||{}}
+function turnScore(turn:InterviewTurn){const values=Object.values(evidenceScores(turn)).filter(value=>Number.isFinite(value));return values.length?Math.round(values.reduce((sum,value)=>sum+value,0)/values.length*20):null}
+
+function LiveInterviewReport({onBack}:{onBack:()=>void}){
+ const [tab,setTab]=useState<'Tổng quan'|'Lịch sử câu trả lời'>('Tổng quan')
+ const [session]=useState<InterviewSession|null>(()=>loadInterviewSession())
+ const answered=session?.turns.filter(turn=>turn.answer)||[]
+ const scored=answered.map(turnScore).filter((score):score is number=>score!==null)
+ const overall=scored.length?Math.round(scored.reduce((sum,score)=>sum+score,0)/scored.length):null
+ return <><div className="report-header"><button className="back" onClick={onBack}><ArrowLeft/></button><div><small>KẾT QUẢ PHỎNG VẤN</small><h1>{session?.status==='completed'?'Phỏng vấn đã hoàn tất':'Kết quả hiện tại'}</h1><p>{answered.length} / {session?.max_questions||0} câu đã trả lời · Transcript đã hiệu chỉnh</p></div></div><div className="report-tabs">{(['Tổng quan','Lịch sử câu trả lời'] as const).map(item=><button className={tab===item?'active':''} key={item} onClick={()=>setTab(item)}>{item}</button>)}</div>{tab==='Tổng quan'?<LiveOverview overall={overall} answered={answered}/>:<AnswerHistory turns={answered}/>}</>
+}
+
+function LiveOverview({overall,answered}:{overall:number|null;answered:InterviewTurn[]}){
+ const criterionValues:Record<string,number[]>={}
+ answered.forEach(turn=>Object.entries(evidenceScores(turn)).forEach(([key,value])=>{if(Number.isFinite(value))(criterionValues[key]||=[]).push(value)}))
+ const criteria=Object.entries(criterionValues).map(([key,values])=>({key,value:Math.round(values.reduce((sum,value)=>sum+value,0)/values.length*20)}))
+ return <><section className="score-hero live-score"><div className="overall-ring"><span><b>{overall??'--'}</b><small>/ 100</small></span></div><div><span className="pill"><Sparkles/> ĐIỂM TỪ MÔ HÌNH ĐÁNH GIÁ</span><h2>{overall===null?'Chưa đủ dữ liệu chấm điểm':overall>=80?'Kết quả tốt':overall>=60?'Kết quả đạt yêu cầu':'Cần cải thiện thêm'}</h2><p>Điểm được tổng hợp từ transcript đã hiệu chỉnh của từng câu trả lời theo thang đánh giá 1–5, sau đó quy đổi sang thang 100.</p></div><aside><div><small>ĐÃ TRẢ LỜI</small><b>{answered.length} câu</b></div><div><small>ĐÃ CHẤM ĐIỂM</small><b>{answered.filter(turn=>turnScore(turn)!==null).length} câu</b></div></aside></section><section className="white-card live-criteria"><div className="card-title"><h3>Điểm theo tiêu chí</h3><span>Dựa trên toàn bộ câu đã trả lời</span></div>{criteria.length?criteria.map(item=><ScoreBar key={item.key} label={SCORE_LABELS[item.key]||item.key} value={item.value}/>):<p className="empty-report">Mô hình chấm điểm chưa trả về dữ liệu cho phiên này.</p>}</section></>
+}
+
+function AnswerHistory({turns}:{turns:InterviewTurn[]}){
+ const [selectedIndex,setSelectedIndex]=useState(0)
+ const turn=turns[selectedIndex]
+ if(!turn)return <section className="white-card empty-report">Chưa có câu trả lời nào trong phiên phỏng vấn.</section>
+ const scores=evidenceScores(turn),score=turnScore(turn)
+ return <div className="question-review"><div className="question-nav"><h3>Lịch sử câu trả lời</h3>{turns.map((item,index)=><button className={index===selectedIndex?'active':''} key={item.turn_index} onClick={()=>setSelectedIndex(index)}><span>{String(index+1).padStart(2,'0')}</span><p><b>{item.stage}</b><small>{turnScore(item)===null?'Chưa có điểm':`${turnScore(item)}/100`}</small></p></button>)}</div><article className="white-card answer-detail"><span className="pill">CÂU HỎI {String(selectedIndex+1).padStart(2,'0')} · {turn.stage.toUpperCase()}</span><h2>{turn.question}</h2><div className="answer-score"><span><b>{score??'--'}</b><small>/100 điểm</small></span><p><strong>{turn.answer_evidence?.status==='success'?'Đã chấm điểm':'Chưa có điểm đánh giá'}</strong><em>{turn.answer_scorer_version||'Transcript đã xử lý'}</em></p></div><div className="transcript-answer"><h4>CÂU TRẢ LỜI ĐÃ XỬ LÝ</h4><p>“{turn.answer}”</p></div><div className="evaluation"><h4><Sparkles/> ĐIỂM CHI TIẾT</h4><div>{Object.keys(scores).length?Object.entries(scores).map(([key,value])=><span key={key}><Check/> {SCORE_LABELS[key]||key}: {(value*20).toFixed(0)}/100</span>):<span>Không có dữ liệu điểm chi tiết.</span>}</div></div></article></div>
 }
 
 export function ReportContent({onBack,candidateView=false}:{onBack:()=>void;candidateView?:boolean}){

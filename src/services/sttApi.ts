@@ -18,6 +18,8 @@ export type TranscriptResult = {
   language: string
   language_probability?: number | null
   latency_ms: number
+  inference_ms?: number
+  correction_ms?: number
   model: string
 }
 
@@ -44,19 +46,30 @@ async function parseResponse<T>(response: Response): Promise<T> {
   throw new Error(message)
 }
 
-export async function createSttJob(audio: Blob, context: string): Promise<SttJob> {
+export async function createSttJob(
+  audio: Blob,
+  context: string,
+  interviewId = 'demo',
+  questionId = 'question-04',
+): Promise<SttJob> {
   const form = new FormData()
   const extension = audio.type.includes('ogg') ? 'ogg' : audio.type.includes('mp4') ? 'm4a' : 'webm'
   form.append('audio', audio, `answer.${extension}`)
-  form.append('interview_id', 'demo')
-  form.append('question_id', 'question-04')
+  form.append('interview_id', interviewId)
+  form.append('question_id', questionId)
   form.append('context', context)
-  const response = await fetch(`${API_BASE}/api/v1/stt/jobs`, { method: 'POST', body: form })
+  const response = await fetch(`${API_BASE}/api/v1/stt/jobs`, {
+    method: 'POST',
+    headers: { 'ngrok-skip-browser-warning': 'true' },
+    body: form,
+  })
   return parseResponse<SttJob>(response)
 }
 
 export async function getSttJob(jobId: string): Promise<SttJob> {
-  const response = await fetch(`${API_BASE}/api/v1/stt/jobs/${jobId}`)
+  const response = await fetch(`${API_BASE}/api/v1/stt/jobs/${jobId}`, {
+    headers: { 'ngrok-skip-browser-warning': 'true' },
+  })
   return parseResponse<SttJob>(response)
 }
 
