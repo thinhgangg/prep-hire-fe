@@ -330,7 +330,10 @@ export function CandidateJobs() {
                 </span>
                 <button
                   onClick={() => {
-                    sessionStorage.setItem("candidate_selected_job_id", String(j.id));
+                    sessionStorage.setItem(
+                      "candidate_selected_job_id",
+                      String(j.id),
+                    );
                     nav("/app/interviews/new");
                   }}
                 >
@@ -512,7 +515,8 @@ export function CandidateCreateInterview() {
           sessionStorage.setItem("selected_cv_name", file.name);
         } else if (cvMode === "stored" && selectedCvId) {
           const cvObj = availableCvs.find((c) => c.cv_id === selectedCvId);
-          if (cvObj) sessionStorage.setItem("selected_cv_name", cvObj.file_name);
+          if (cvObj)
+            sessionStorage.setItem("selected_cv_name", cvObj.file_name);
         }
       }
       setStarted(true);
@@ -1123,7 +1127,7 @@ export function CandidateCreateInterview() {
                   count: 5,
                   label: "5 câu",
                   time: "~20 phút",
-                  desc: "Tiêu chuẩn (Khuyên dùng)",
+                  desc: "Tiêu chuẩn",
                 },
                 {
                   count: 8,

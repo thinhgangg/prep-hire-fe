@@ -1365,7 +1365,7 @@ export function StartInterview({ go }: { go: (p: Page) => void }) {
                   count: 5,
                   label: "5 câu",
                   time: "~20 phút",
-                  desc: "Tiêu chuẩn (Khuyên dùng)",
+                  desc: "Tiêu chuẩn",
                 },
                 {
                   count: 8,
