@@ -18,6 +18,7 @@ import { useAuth } from './auth/AuthContext'
 import type { Page } from './App'
 import { createSttJob, getSttJob, checkSttHealth, getSttApiBase, setCustomSttUrl, STT_JOB_STORAGE_KEY, STT_RESULT_STORAGE_KEY, type SttJob, type TranscriptResult } from './services/sttApi'
 import { clientGazeTracker, GAZE_RESULT_STORAGE_KEY, type GazeReportResult } from './services/gazeTracker'
+import { speakQuestion, stopQuestionSpeech } from './services/ttsApi'
 
 type Props = { go: (page: Page) => void; page?: Page }
 
@@ -560,6 +561,7 @@ export function InterviewRoom({ go }: Props) {
   const [showTextInput, setShowTextInput] = useState(false)
   const [evaluating, setEvaluating] = useState(false)
   const [inRoomStatus, setInRoomStatus] = useState('')
+  const [ttsStatus, setTtsStatus] = useState<'idle' | 'loading' | 'playing' | 'error'>('idle')
 
   const recorderRef = useRef<MediaRecorder | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -582,6 +584,28 @@ export function InterviewRoom({ go }: Props) {
     const t = setInterval(() => setSecs(s => s + 1), 1000)
     return () => clearInterval(t)
   }, [])
+
+  useEffect(() => {
+    if (!questionText) return
+    let cancelled = false
+    setTtsStatus('loading')
+    speakQuestion(questionText, () => {
+      if (!cancelled) setTtsStatus('idle')
+    })
+      .then(() => {
+        if (!cancelled) setTtsStatus('playing')
+      })
+      .catch(error => {
+        if (error?.name !== 'AbortError' && !cancelled) {
+          console.warn('KorvaTTS unavailable:', error)
+          setTtsStatus('error')
+        }
+      })
+    return () => {
+      cancelled = true
+      stopQuestionSpeech()
+    }
+  }, [questionText])
 
   // Initialize camera, microphone, and MediaPipe Gaze Tracker directly in browser
   useEffect(() => {
@@ -1105,6 +1129,29 @@ export function InterviewRoom({ go }: Props) {
 
           <div className="question-content">
             <h1>{questionText}</h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
+              <button
+                type="button"
+                className="outline"
+                onClick={() => {
+                  setTtsStatus('loading')
+                  speakQuestion(questionText, () => setTtsStatus('idle'))
+                    .then(() => setTtsStatus('playing'))
+                    .catch(() => setTtsStatus('error'))
+                }}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px' }}
+              >
+                <Headphones size={15} /> Đọc lại câu hỏi
+              </button>
+              {ttsStatus === 'playing' && (
+                <button type="button" className="outline" onClick={() => { stopQuestionSpeech(); setTtsStatus('idle') }} style={{ padding: '7px 12px' }}>
+                  Dừng đọc
+                </button>
+              )}
+              <small style={{ opacity: 0.7 }}>
+                {ttsStatus === 'loading' ? 'Đang tạo giọng đọc...' : ttsStatus === 'playing' ? 'Giọng Hoàng Nam đang đọc' : ttsStatus === 'error' ? 'TTS chưa sẵn sàng' : ''}
+              </small>
+            </div>
           </div>
 
           {inRoomStatus && (
