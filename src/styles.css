@@ -136,3 +136,10 @@
 .stt-timing{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:-8px 0 17px}.stt-timing>div{display:flex;flex-direction:column;gap:4px;padding:12px;background:#eef4f0;border:1px solid #d9e5dd;border-radius:10px}.stt-timing small{font-size:9px;color:#718078}.stt-timing b{font-size:16px;color:#274b38}
 .live-score{grid-template-columns:170px 1fr 190px}.live-score aside{grid-template-columns:1fr}.live-criteria{max-width:760px;margin:18px auto;padding:24px}.empty-report{padding:28px;color:#77827b;text-align:center}.question-nav button{cursor:pointer}.answer-detail .evaluation>div{display:flex;flex-wrap:wrap;gap:8px}.answer-detail .evaluation>div>span{display:inline-flex;align-items:center;gap:5px;padding:7px 9px;border-radius:7px;background:#eef4f0;color:#365d46;font-size:11px}.answer-detail .evaluation>div>span svg{width:13px}
 @media(max-width:720px){.live-score{grid-template-columns:1fr}.live-score aside{grid-template-columns:1fr 1fr}.live-criteria{padding:18px}}
+
+/* Mirror camera preview like Zoom / Google Meet */
+.camera-preview video,
+.main-feed video {
+  transform: scaleX(-1);
+  -webkit-transform: scaleX(-1);
+}
