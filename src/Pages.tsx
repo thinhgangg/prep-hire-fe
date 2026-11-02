@@ -213,8 +213,61 @@ export function DeviceCheckPage({ go }: Props) {
     verifyStt()
   }, [])
 
-  // Setup real camera and microphone stream
-  const initDevices = async () => {
+  const [isTestingDevices, setIsTestingDevices] = useState(false)
+
+  // Explicitly stop all streams and tracks outside of interview
+  const stopTestStream = () => {
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current)
+      animFrameRef.current = null
+    }
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      try {
+        audioContextRef.current.close()
+      } catch {}
+      audioContextRef.current = null
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => {
+        try { t.stop() } catch {}
+      })
+      streamRef.current = null
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null
+    }
+    setIsTestingDevices(false)
+    setMicLevel(0)
+  }
+
+  useEffect(() => {
+    verifyStt()
+    // Outside interview requirement: Camera must be completely OFF on entry
+    stopTestStream()
+
+    // Detect hardware device presence without opening camera/microphone
+    if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+      navigator.mediaDevices.enumerateDevices().then(devs => {
+        const hasCam = devs.some(d => d.kind === 'videoinput')
+        const hasMic = devs.some(d => d.kind === 'audioinput')
+        setCameraActive(hasCam)
+        setMicActive(hasMic)
+      }).catch(() => {
+        setCameraActive(true)
+        setMicActive(true)
+      })
+    } else {
+      setCameraActive(true)
+      setMicActive(true)
+    }
+
+    return () => {
+      stopTestStream()
+    }
+  }, [])
+
+  // Manual device test triggered only when user explicitly asks for it
+  const startDeviceTest = async () => {
     setPermissionError('')
     try {
       let stream: MediaStream
@@ -226,7 +279,6 @@ export function DeviceCheckPage({ go }: Props) {
         setCameraActive(true)
         setMicActive(true)
       } catch (camErr) {
-        console.warn('Camera failed, trying audio-only:', camErr)
         stream = await navigator.mediaDevices.getUserMedia({ audio: true })
         setCameraActive(false)
         setMicActive(true)
@@ -234,6 +286,7 @@ export function DeviceCheckPage({ go }: Props) {
       }
 
       streamRef.current = stream
+      setIsTestingDevices(true)
 
       if (videoRef.current && stream.getVideoTracks().length > 0) {
         videoRef.current.srcObject = stream
@@ -242,7 +295,6 @@ export function DeviceCheckPage({ go }: Props) {
         } catch {}
       }
 
-      // Setup Web Audio Analyser for live mic level visualization
       const audioTracks = stream.getAudioTracks()
       if (audioTracks.length > 0) {
         try {
@@ -266,32 +318,22 @@ export function DeviceCheckPage({ go }: Props) {
             animFrameRef.current = requestAnimationFrame(updateLevel)
           }
           updateLevel()
-        } catch (e) {
-          console.warn('AudioAnalyser setup note:', e)
-        }
+        } catch {}
       }
     } catch (err: any) {
-      console.error('Device check error:', err)
+      console.error('Manual test device error:', err)
       setPermissionError('Chưa cấp quyền Camera hoặc Microphone. Hãy cho phép trình duyệt truy cập thiết bị.')
-      setCameraActive(false)
-      setMicActive(false)
+      stopTestStream()
     }
   }
 
-  useEffect(() => {
-    initDevices()
-    return () => {
-      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current)
-      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-        try {
-          audioContextRef.current.close()
-        } catch {}
-      }
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(t => t.stop())
-      }
+  const toggleDeviceTest = () => {
+    if (isTestingDevices) {
+      stopTestStream()
+    } else {
+      startDeviceTest()
     }
-  }, [])
+  }
 
   const toggleMicState = () => {
     const next = !mic
@@ -378,8 +420,8 @@ export function DeviceCheckPage({ go }: Props) {
 
         <div className="device-grid">
           <section>
-            <div className={`camera-preview ${!camera || !cameraActive ? 'off' : ''}`}>
-              {camera && cameraActive ? (
+            <div className={`camera-preview ${!isTestingDevices ? 'off' : ''}`}>
+              {isTestingDevices && camera && streamRef.current ? (
                 <>
                   <video
                     ref={videoRef}
@@ -388,27 +430,39 @@ export function DeviceCheckPage({ go }: Props) {
                     muted
                     style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 'inherit' }}
                   />
-                  <span className="live"><i></i> Camera HD hoạt động</span>
+                  <span className="live"><i></i> Đang kiểm tra thử Camera</span>
                 </>
               ) : (
-                <div className="camera-off">
-                  <VideoOff />
-                  <p>{cameraActive ? 'Camera đang tắt' : 'Không tìm thấy camera hoặc chưa cấp quyền'}</p>
+                <div className="camera-off" style={{ padding: '24px 20px', textAlign: 'center' }}>
+                  <VideoOff size={40} style={{ color: '#64748b', marginBottom: 12 }} />
+                  <h3 style={{ margin: '0 0 6px', color: '#f8fafc', fontSize: '16px' }}>Camera & Micro ở chế độ chờ</h3>
+                  <p style={{ margin: '0 0 16px', fontSize: '13px', color: '#94a3b8', lineHeight: 1.5 }}>
+                    Thiết bị sẽ <b>tự động bật</b> khi bạn nhấn "Bắt đầu phỏng vấn". Bạn có thể kiểm tra thử trước nếu muốn:
+                  </p>
+                  <button
+                    type="button"
+                    onClick={toggleDeviceTest}
+                    className="outline"
+                    style={{ color: '#cbd5e1', borderColor: '#475569', padding: '8px 16px', fontSize: '13px', cursor: 'pointer' }}
+                  >
+                    {isTestingDevices ? 'Dừng kiểm tra thử' : 'Kiểm tra thử Camera & Micro'}
+                  </button>
                 </div>
               )}
             </div>
 
             <div className="device-controls">
-              <button onClick={toggleMicState} className={!mic ? 'disabled' : ''}>
-                {mic ? <Mic /> : <MicOff />}
-                <span>{mic ? 'Microphone bật' : 'Microphone tắt'}</span>
-              </button>
-              <button onClick={toggleCamState} className={!camera ? 'disabled' : ''}>
-                {camera ? <Camera /> : <VideoOff />}
-                <span>{camera ? 'Camera bật' : 'Camera tắt'}</span>
+              <button
+                type="button"
+                onClick={toggleDeviceTest}
+                className={isTestingDevices ? 'active' : ''}
+                style={{ flex: 1 }}
+              >
+                {isTestingDevices ? <VideoOff /> : <Camera />}
+                <span>{isTestingDevices ? 'Dừng kiểm tra thử' : 'Bật kiểm tra thử thiết bị'}</span>
               </button>
               {permissionError && (
-                <button onClick={initDevices} className="primary" style={{ background: '#3b82f6', color: '#fff' }}>
+                <button onClick={startDeviceTest} className="primary" style={{ background: '#3b82f6', color: '#fff' }}>
                   Cấp lại quyền thiết bị
                 </button>
               )}
@@ -502,11 +556,9 @@ export function DeviceCheckPage({ go }: Props) {
 
             <button
               className="primary full"
-              disabled={!agree || !mic}
+              disabled={!agree}
               onClick={() => {
-                if (streamRef.current) {
-                  streamRef.current.getTracks().forEach(t => t.stop())
-                }
+                stopTestStream()
                 go('room')
               }}
             >
@@ -521,6 +573,32 @@ export function DeviceCheckPage({ go }: Props) {
 }
 
 export function InterviewRoom({ go }: Props) {
+  const cleanupMedia = () => {
+    try {
+      clientGazeTracker.stop()
+    } catch {}
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop()
+      } catch {}
+    }
+    if (recorderRef.current && recorderRef.current.state !== 'inactive') {
+      try {
+        recorderRef.current.stop()
+      } catch {}
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => {
+        try { track.stop() } catch {}
+      })
+      streamRef.current = null
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null
+    }
+    stopQuestionSpeech()
+  }
+
   const [mic, setMic] = useState(true)
   const [cam, setCam] = useState(true)
   const [recording, setRecording] = useState(false)
@@ -681,20 +759,18 @@ export function InterviewRoom({ go }: Props) {
 
     initMedia()
 
+    const handleUnload = () => {
+      cleanupMedia()
+    }
+    window.addEventListener('beforeunload', handleUnload)
+
     return () => {
-      try {
-        clientGazeTracker.stop()
-      } catch {}
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.stop()
-        } catch {}
-      }
+      window.removeEventListener('beforeunload', handleUnload)
+      cleanupMedia()
       if (activeStream) {
-        activeStream.getTracks().forEach(track => track.stop())
-      }
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop())
+        activeStream.getTracks().forEach(track => {
+          try { track.stop() } catch {}
+        })
       }
     }
   }, [])
@@ -728,14 +804,7 @@ export function InterviewRoom({ go }: Props) {
   }
 
   const handleEndInterview = () => {
-    try {
-      clientGazeTracker.stop()
-    } catch {}
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.stop()
-      } catch {}
-    }
+    cleanupMedia()
     go('report')
   }
 
@@ -781,9 +850,7 @@ export function InterviewRoom({ go }: Props) {
 
       // Check if finished
       if (result.status === 'completed' || !result.current_question) {
-        try {
-          clientGazeTracker.stop()
-        } catch {}
+        cleanupMedia()
         sessionStorage.setItem('interview_completed', 'true')
         go('report')
       } else {

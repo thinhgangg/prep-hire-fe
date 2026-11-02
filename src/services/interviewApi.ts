@@ -1,4 +1,4 @@
-const AI_API_BASE = (import.meta.env.VITE_AI_API_BASE_URL || 'http://localhost:8001').replace(/\/$/, '')
+const AI_API_BASE = (import.meta.env.VITE_AI_API_BASE_URL || import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001').replace(/\/$/, '')
 
 export type TurnEvidenceScores = {
   answer_relevance: number
@@ -126,6 +126,7 @@ export async function createSessionWithUpload(params: {
   jdText?: string | null
   language?: string
   maxQuestions?: number
+  userId?: number | string | null
 }): Promise<InterviewSession> {
   const form = new FormData()
   if (params.cvFile) form.append('cv_file', params.cvFile)
@@ -136,6 +137,11 @@ export async function createSessionWithUpload(params: {
   form.append('language', params.language || 'vi')
   form.append('max_questions', String(params.maxQuestions || 5))
   form.append('allow_external_ai', 'true')
+  const effectiveUserId = params.userId ?? sessionStorage.getItem('current_user_id')
+  if (effectiveUserId !== null && effectiveUserId !== undefined) {
+    const cleanNum = String(effectiveUserId).replace(/\D/g, '')
+    if (cleanNum) form.append('user_id', cleanNum)
+  }
 
   const res = await fetch(`${AI_API_BASE}/api/v1/interview/sessions/upload`, {
     method: 'POST',
@@ -284,5 +290,16 @@ export function loadCvAnalysis(): CvAnalysis | null {
     return value ? (JSON.parse(value) as CvAnalysis) : null
   } catch {
     return null
+  }
+}
+
+export async function getUserSessions(userId: number | string): Promise<InterviewSession[]> {
+  const cleanId = String(userId).replace(/\D/g, '') || String(userId)
+  try {
+    const res = await fetch(`${AI_API_BASE}/api/v1/interview/users/${cleanId}/sessions`)
+    if (!res.ok) return []
+    return await res.json()
+  } catch {
+    return []
   }
 }

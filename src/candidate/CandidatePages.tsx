@@ -24,7 +24,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { ReportContent, computeAiEvaluation } from "../Pages";
-import { loadInterviewSession, loadCvAnalysis } from "../services/interviewApi";
+import { loadInterviewSession, loadCvAnalysis, getUserSessions } from "../services/interviewApi";
 import {
   analyzeCv,
   createSessionWithUpload,
@@ -131,16 +131,23 @@ function CandidateLayout({
           <b>Sẵn sàng phỏng vấn?</b>
           <p>Kiểm tra thiết bị trước để có trải nghiệm tốt nhất.</p>
         </div>
-        <div className="candidate-user">
-          <span>MA</span>
-          <p>
-            <b>{user?.name}</b>
-            <small>Ứng viên</small>
-          </p>
-          <button onClick={signOut} title="Đăng xuất">
-            <LogOut />
-          </button>
-        </div>
+        {(() => {
+          const initials = user?.name
+            ? user.name.split(' ').map((w: string) => w[0]).filter(Boolean).slice(-2).join('').toUpperCase()
+            : (user?.username ? user.username.slice(0, 2).toUpperCase() : 'UV');
+          return (
+            <div className="candidate-user">
+              <span>{initials}</span>
+              <p>
+                <b>{user?.name || 'Ứng viên'}</b>
+                <small>{user?.username ? `ID: ${user.username}` : 'Ứng viên'}</small>
+              </p>
+              <button onClick={signOut} title="Đăng xuất">
+                <LogOut />
+              </button>
+            </div>
+          );
+        })()}
       </aside>
       <main className="sub-content candidate-main">{children}</main>
     </div>
@@ -174,10 +181,11 @@ function CandidateHeader({
 
 export function CandidateHome() {
   const nav = useNavigate();
+  const { user } = useAuth();
   return (
     <CandidateLayout active="/app">
       <CandidateHeader
-        title="Xin chào, Minh Anh 👋"
+        title={`Xin chào, ${user?.name || "Ứng viên"} 👋`}
         desc="Sẵn sàng cho bước tiếp theo trong hành trình nghề nghiệp của bạn?"
         action={
           <button
@@ -350,6 +358,7 @@ export function CandidateJobs() {
 
 export function CandidateCreateInterview() {
   const nav = useNavigate();
+  const { user } = useAuth();
   const [file, setFile] = useState<File | null>(null);
   const [selectedCvId, setSelectedCvId] = useState<number | null>(null);
   const [cvMode, setCvMode] = useState<"upload" | "stored">("upload");
@@ -386,7 +395,7 @@ export function CandidateCreateInterview() {
     });
     // Fetch available CVs from backend
     fetch(
-      (import.meta.env.VITE_API_BASE_URL || "http://localhost:8002").replace(
+      (import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000").replace(
         /\/$/,
         "",
       ) + "/api/v1/interview/demo/options",
@@ -485,6 +494,7 @@ export function CandidateCreateInterview() {
         jdFile: jobMode === "upload" ? jdFile : null,
         jdText: jobMode === "upload" ? customJdText : null,
         maxQuestions: numQuestions,
+        userId: user?.user_id_num || user?.id,
       });
 
       if (session && session.session_id) {
@@ -1314,7 +1324,20 @@ export function CandidateCreateInterview() {
 
 export function CandidateResults() {
   const nav = useNavigate();
+  const { user } = useAuth();
   const session = loadInterviewSession();
+  const [userDbSessions, setUserDbSessions] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (user?.user_id_num || user?.id) {
+      const uid = user.user_id_num || user.id;
+      getUserSessions(uid).then((res) => {
+        if (Array.isArray(res) && res.length > 0) {
+          setUserDbSessions(res);
+        }
+      });
+    }
+  }, [user]);
   const cvAnalysis = loadCvAnalysis();
 
   // Compute real AI evaluation for current session if available
@@ -1424,14 +1447,21 @@ export function CandidateProfile() {
         desc="Quản lý thông tin và CV mặc định của bạn."
       />
       <section className="candidate-profile-page">
-        <div className="candidate-profile-head">
-          <span>MA</span>
-          <div>
-            <h2>{user?.name}</h2>
-            <p>{user?.email}</p>
-          </div>
-          <button className="outline">Thay đổi ảnh</button>
-        </div>
+        {(() => {
+          const initials = user?.name
+            ? user.name.split(' ').map((w: string) => w[0]).filter(Boolean).slice(-2).join('').toUpperCase()
+            : 'UV';
+          return (
+            <div className="candidate-profile-head">
+              <span>{initials}</span>
+              <div>
+                <h2>{user?.name || 'Ứng viên'}</h2>
+                <p>{user?.email || 'user@prephire.vn'}</p>
+                <small style={{ color: '#6b7280' }}>Tài khoản: <b>{user?.username || 'user1'}</b></small>
+              </div>
+            </div>
+          );
+        })()}
         <div className="candidate-profile-form">
           <label>
             Họ và tên

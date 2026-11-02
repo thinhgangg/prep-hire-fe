@@ -28,8 +28,8 @@ function CandidateFlow({screen}:{screen:'device'|'room'|'processing'}){
 }
 
 function LoginRoute(){
-  const navigate=useNavigate(),{loginAs}=useAuth()
-  return <Login onLogin={()=>{loginAs('ADMIN');navigate('/admin/dashboard')}} onCandidate={()=>{loginAs('CANDIDATE');navigate('/app')}}/>
+  const navigate=useNavigate()
+  return <Login onLogin={()=>navigate('/admin/dashboard')} onCandidate={()=>navigate('/app')}/>
 }
 
 function RootRedirect(){const {user}=useAuth();return <Navigate to={user?HOME_BY_ROLE[user.role]:'/login'} replace/>}

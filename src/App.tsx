@@ -118,29 +118,32 @@ export function Login({
   onLogin: () => void;
   onCandidate?: () => void;
 }) {
+  const { login } = useAuth();
   const [showPass, setShowPass] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [email, setEmail] = useState("admin");
+  const [email, setEmail] = useState("user1");
   const [password, setPassword] = useState("123456");
   const [error, setError] = useState("");
-  const submit = (e: React.FormEvent) => {
+
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    const isAdmin =
-      email.trim().toLowerCase() === "admin" && password === "123456";
-    const isCandidate =
-      email.trim().toLowerCase() === "user" && password === "123456";
-    if (!isAdmin && !isCandidate) {
-      setError(
-        "Email hoặc mật khẩu không đúng. Vui lòng dùng tài khoản mẫu bên dưới.",
-      );
-      return;
-    }
     setBusy(true);
-    setTimeout(
-      () => (isCandidate && onCandidate ? onCandidate() : onLogin()),
-      500,
-    );
+    try {
+      const authUser = await login(email, password);
+      if (authUser.role === "CANDIDATE" && onCandidate) {
+        onCandidate();
+      } else {
+        onLogin();
+      }
+    } catch (err: any) {
+      setError(
+        err?.message ||
+          "Đăng nhập không thành công. Hãy thử tài khoản từ user1 đến user100 (mật khẩu: 123456).",
+      );
+    } finally {
+      setBusy(false);
+    }
   };
   return (
     <main className="login-page">
@@ -205,37 +208,74 @@ export function Login({
             </button>
           </form>
           <div className="demo-accounts">
-            <p>TÀI KHOẢN DÙNG THỬ</p>
-            <button
-              type="button"
-              onClick={() => {
-                setEmail("admin");
-                setPassword("123456");
-                setError("");
-              }}
-            >
-              <span className="demo-admin">AD</span>
-              <span>
-                <b>Quản trị viên</b>
-                <small>admin · 123456</small>
-              </span>
-              <ArrowRight />
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setEmail("user");
-                setPassword("123456");
-                setError("");
-              }}
-            >
-              <span className="demo-candidate">UV</span>
-              <span>
-                <b>Ứng viên</b>
-                <small>user · 123456</small>
-              </span>
-              <ArrowRight />
-            </button>
+            <p>TÀI KHOẢN MẪU THỬ NGHIỆM (MẬT KHẨU: 123456)</p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "12px" }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setEmail("user1");
+                  setPassword("123456");
+                  setError("");
+                }}
+              >
+                <span className="demo-candidate">U1</span>
+                <span>
+                  <b>Ứng viên 1</b>
+                  <small>user1 · 123456</small>
+                </span>
+                <ArrowRight />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEmail("user2");
+                  setPassword("123456");
+                  setError("");
+                }}
+              >
+                <span className="demo-candidate">U2</span>
+                <span>
+                  <b>Ứng viên 2</b>
+                  <small>user2 · 123456</small>
+                </span>
+                <ArrowRight />
+              </button>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "12px" }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setEmail("user3");
+                  setPassword("123456");
+                  setError("");
+                }}
+              >
+                <span className="demo-candidate">U3</span>
+                <span>
+                  <b>Ứng viên 3</b>
+                  <small>user3 · 123456</small>
+                </span>
+                <ArrowRight />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEmail("admin");
+                  setPassword("123456");
+                  setError("");
+                }}
+              >
+                <span className="demo-admin">AD</span>
+                <span>
+                  <b>Quản trị viên</b>
+                  <small>admin · 123456</small>
+                </span>
+                <ArrowRight />
+              </button>
+            </div>
+            <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "10px 12px", fontSize: "12px", color: "#64748b", lineHeight: 1.5 }}>
+              💡 Hệ thống hỗ trợ <b>100 tài khoản mẫu</b> từ <code>user1</code> đến <code>user100</code> (mật khẩu chung <code>123456</code>). Dữ liệu phỏng vấn sẽ được lưu gắn liền với từng tài khoản để thu thập đánh giá thực tế.
+            </div>
           </div>
           <p className="signup">
             Chưa có tài khoản? <a href="#">Đăng ký miễn phí</a>
