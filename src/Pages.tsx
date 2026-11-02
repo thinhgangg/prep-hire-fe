@@ -428,7 +428,7 @@ export function DeviceCheckPage({ go }: Props) {
                     autoPlay
                     playsInline
                     muted
-                    style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 'inherit' }}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 'inherit', transform: 'scaleX(-1)' }}
                   />
                   <span className="live"><i></i> Đang kiểm tra thử Camera</span>
                 </>
@@ -1168,7 +1168,7 @@ export function InterviewRoom({ go }: Props) {
                 autoPlay
                 playsInline
                 muted
-                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }}
               />
             ) : (
               <div className="video-person">
