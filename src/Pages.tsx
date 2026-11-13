@@ -3645,113 +3645,140 @@ export function computeAiEvaluation(
   Object.keys(criterionSum).forEach((k) => {
     criterionAvg[k] = criterionSum[k] / Math.max(1, criterionCount[k]);
   });
-
-  // If candidate gave 0 valid answers (all skipped or idk), all criterion averages will be 1.0
+  // If candidate gave 0 valid answers (all skipped or idk), all criterion averages will be 0.0
   const hasValidAnswers = validAnsweredCount > 0;
 
-  // Calculate the 5 Core Competencies (scale 1.0 - 5.0 -> percentage 20 - 100%)
+  // Calculate the 5 Core Competencies
   const compValues: Record<string, number> = {};
   Object.entries(COMPETENCY_SIGNALS).forEach(([compKey, weights]) => {
     let wSum = 0;
     let wTotal = 0;
     Object.entries(weights).forEach(([signalKey, weight]) => {
-      const val = criterionAvg[signalKey] ?? (hasValidAnswers ? 4.0 : 1.0);
+      const val = criterionAvg[signalKey] ?? (hasValidAnswers ? 4.0 : 0.0);
       wSum += val * weight;
       wTotal += weight;
     });
     compValues[compKey] =
-      wTotal > 0 ? wSum / wTotal : hasValidAnswers ? 4.0 : 1.0;
+      wTotal > 0 ? wSum / wTotal : hasValidAnswers ? 4.0 : 0.0;
   });
 
   const competencies: CompetencyResult[] = [
     {
       key: "technical_knowledge",
       label: "Kiến thức chuyên môn & Kỹ thuật",
-      score: Math.min(
-        100,
-        Math.max(20, Math.round((compValues.technical_knowledge / 5.0) * 100)),
-      ),
-      level:
-        compValues.technical_knowledge >= 4.0
+      score: hasValidAnswers
+        ? Math.min(
+            100,
+            Math.max(
+              10,
+              Math.round((compValues.technical_knowledge / 5.0) * 100),
+            ),
+          )
+        : 0,
+      level: hasValidAnswers
+        ? compValues.technical_knowledge >= 4.0
           ? "Thành thạo"
           : compValues.technical_knowledge >= 2.5
             ? "Đạt yêu cầu"
-            : "Chưa đạt",
+            : "Chưa đạt"
+        : "Không đạt (0đ)",
       desc: "Độ chính xác về khái niệm kỹ thuật và kiến trúc hệ thống.",
     },
     {
       key: "problem_solving",
       label: "Kỹ năng giải quyết vấn đề & Tư duy",
-      score: Math.min(
-        100,
-        Math.max(20, Math.round((compValues.problem_solving / 5.0) * 100)),
-      ),
-      level:
-        compValues.problem_solving >= 4.0
+      score: hasValidAnswers
+        ? Math.min(
+            100,
+            Math.max(10, Math.round((compValues.problem_solving / 5.0) * 100)),
+          )
+        : 0,
+      level: hasValidAnswers
+        ? compValues.problem_solving >= 4.0
           ? "Tư duy logic cao"
           : compValues.problem_solving >= 2.5
             ? "Khá"
-            : "Chưa đạt",
+            : "Chưa đạt"
+        : "Không đạt (0đ)",
       desc: "Chất lượng lập luận, phân tích trade-off và tối ưu giải pháp.",
     },
     {
       key: "experience_evidence",
       label: "Kinh nghiệm thực chiến & Dẫn chứng",
-      score: Math.min(
-        100,
-        Math.max(20, Math.round((compValues.experience_evidence / 5.0) * 100)),
-      ),
-      level:
-        compValues.experience_evidence >= 4.0
+      score: hasValidAnswers
+        ? Math.min(
+            100,
+            Math.max(
+              10,
+              Math.round((compValues.experience_evidence / 5.0) * 100),
+            ),
+          )
+        : 0,
+      level: hasValidAnswers
+        ? compValues.experience_evidence >= 4.0
           ? "Thực chứng mạnh mẽ"
           : compValues.experience_evidence >= 2.5
             ? "Cơ bản"
-            : "Thiếu dẫn chứng",
+            : "Thiếu dẫn chứng"
+        : "Không đạt (0đ)",
       desc: "Dẫn chứng cụ thể từ các dự án thực tế và số liệu triển khai.",
     },
     {
       key: "communication",
       label: "Kỹ năng giao tiếp & Trình bày",
-      score: Math.min(
-        100,
-        Math.max(20, Math.round((compValues.communication / 5.0) * 100)),
-      ),
-      level:
-        compValues.communication >= 4.0
+      score: hasValidAnswers
+        ? Math.min(
+            100,
+            Math.max(10, Math.round((compValues.communication / 5.0) * 100)),
+          )
+        : 0,
+      level: hasValidAnswers
+        ? compValues.communication >= 4.0
           ? "Mạch lạc, súc tích"
           : compValues.communication >= 2.5
             ? "Đạt yêu cầu"
-            : "Cần cải thiện",
+            : "Cần cải thiện"
+        : "Không đạt (0đ)",
       desc: "Cấu trúc câu trả lời rõ ràng, truyền đạt tự tin, có trọng tâm.",
     },
     {
       key: "role_relevance",
       label: "Độ phù hợp công việc & Nhất quán",
-      score: Math.min(
-        100,
-        Math.max(20, Math.round((compValues.role_relevance / 5.0) * 100)),
-      ),
-      level:
-        compValues.role_relevance >= 4.0
+      score: hasValidAnswers
+        ? Math.min(
+            100,
+            Math.max(10, Math.round((compValues.role_relevance / 5.0) * 100)),
+          )
+        : 0,
+      level: hasValidAnswers
+        ? compValues.role_relevance >= 4.0
           ? "Phù hợp cao với JD"
           : compValues.role_relevance >= 2.5
             ? "Phù hợp"
-            : "Chưa phù hợp",
+            : "Chưa phù hợp"
+        : "Không đạt (0đ)",
       desc: "Mức độ bám sát yêu cầu công việc và tính trung thực so với CV.",
     },
   ];
 
   // Calculate Overall Score (Weighted / 100)
-  let overallSum = 0;
-  let overallWeight = 0;
-  competencies.forEach((c) => {
-    const w = OVERALL_WEIGHTS[c.key] || 0.2;
-    overallSum += c.score * w;
-    overallWeight += w;
-  });
-  const overallScore = hasValidAnswers
-    ? Math.round(overallSum / overallWeight)
-    : 20;
+  let overallScore = 0;
+  if (hasValidAnswers) {
+    let overallSum = 0;
+    let overallWeight = 0;
+    competencies.forEach((c) => {
+      const w = OVERALL_WEIGHTS[c.key] || 0.2;
+      overallSum += c.score * w;
+      overallWeight += w;
+    });
+    const completionRate = validAnsweredCount / Math.max(1, totalExpected);
+    const baseScore = overallSum / overallWeight;
+    // Phạt theo tỷ lệ câu hỏi thực chất đã hoàn thành
+    overallScore = Math.round(baseScore * completionRate);
+  } else {
+    // Bỏ qua tất cả câu hỏi: CHẤM 0 ĐIỂM
+    overallScore = 0;
+  }
 
   const levelText =
     overallScore >= 80
@@ -3760,11 +3787,13 @@ export function computeAiEvaluation(
         ? "Ứng viên tiềm năng"
         : overallScore >= 45
           ? "Cần cải thiện thêm"
-          : "Chưa đạt yêu cầu";
+          : overallScore > 0
+            ? "Chưa đạt yêu cầu"
+            : "Không đạt (0 điểm - Bỏ qua toàn bộ câu hỏi)";
 
   const totalPenalized = nonAnswerCount + unansweredCount;
   const recommendation = !hasValidAnswers
-    ? "Chưa đạt yêu cầu - Ứng viên không trả lời hoặc bỏ qua các câu hỏi trong phiên phỏng vấn."
+    ? "KHÔNG ĐẠT (0 ĐIỂM) - Ứng viên đã bỏ qua hoặc không trả lời bất kỳ câu hỏi nào trong suốt phiên phỏng vấn."
     : totalPenalized > 0 && overallScore < 65
       ? `Điểm tổng kết bị trừ đáng kể do có ${totalPenalized}/${totalExpected} câu hỏi không trả lời hoặc trả lời không biết.`
       : overallScore >= 75
@@ -3782,11 +3811,15 @@ export function computeAiEvaluation(
         `Trả lời tự tin, đúng trọng tâm và nhất quán với thông tin trong hồ sơ (${competencies[4].score}/100)`,
       ]
     : [
-        "Chưa có dữ liệu điểm mạnh do ứng viên chưa hoàn thành câu trả lời nào.",
+        "Không có điểm mạnh nào do ứng viên chưa trả lời bất kỳ câu hỏi nào trong buổi phỏng vấn.",
       ];
 
   const improvements: string[] = [];
-  if (totalPenalized > 0) {
+  if (!hasValidAnswers) {
+    improvements.push(
+      "Ứng viên cần tham gia trả lời đầy đủ các câu hỏi phỏng vấn để hệ thống AI có đủ dữ liệu đánh giá năng lực thực tế.",
+    );
+  } else if (totalPenalized > 0) {
     improvements.push(
       `CẢNH BÁO: Điểm tổng kết đã bị trừ do có ${totalPenalized} câu hỏi chưa trả lời hoặc trả lời "không biết" / bỏ qua (Tỷ lệ hoàn thành: ${Math.round((validAnsweredCount / totalExpected) * 100)}%).`,
     );
@@ -3798,7 +3831,7 @@ export function computeAiEvaluation(
 
   const confidence = hasValidAnswers
     ? Math.min(98, Math.round(70 + (validAnsweredCount / totalExpected) * 25))
-    : 20;
+    : 0;
 
   return {
     candidateName,
@@ -3823,7 +3856,10 @@ function getRadarPoint(
   scorePercent: number,
   angleDeg: number,
 ): string {
-  const r = (maxRadius * Math.max(15, Math.min(100, scorePercent))) / 100;
+  const r =
+    scorePercent <= 0
+      ? 0
+      : (maxRadius * Math.max(5, Math.min(100, scorePercent))) / 100;
   const rad = ((angleDeg - 90) * Math.PI) / 180;
   const x = cx + r * Math.cos(rad);
   const y = cy + r * Math.sin(rad);

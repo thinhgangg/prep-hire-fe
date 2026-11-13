@@ -2038,7 +2038,7 @@ export function CandidateResults() {
   const hasRealSession =
     session && session.turns && session.turns.some((t) => t.answer);
 
-  const realScore = currentEval?.overallScore || (hasRealSession ? 80 : 0);
+  const realScore = currentEval?.overallScore ?? (hasRealSession ? 80 : 0);
   const completedCount =
     userDbSessions.length > 0
       ? String(userDbSessions.length).padStart(2, "0")
@@ -2065,7 +2065,9 @@ export function CandidateResults() {
       <div className="personal-summary">
         <div>
           <small>ĐIỂM GẦN NHẤT</small>
-          <b>{realScore}</b>
+          <b style={realScore === 0 ? { color: "#dc2626" } : {}}>
+            {realScore}
+          </b>
           <span>/100 điểm AI đánh giá</span>
         </div>
         <div>
@@ -2075,8 +2077,12 @@ export function CandidateResults() {
         </div>
         <div>
           <small>NĂNG LỰC NỔI BẬT</small>
-          <b>{topCompetency}</b>
-          <span>{topScore}/100 điểm</span>
+          <b>
+            {currentEval.overallScore > 0 ? topCompetency : "Chưa có"}
+          </b>
+          <span>
+            {currentEval.overallScore > 0 ? `${topScore}/100 điểm` : "--"}
+          </span>
         </div>
       </div>
 
@@ -2104,7 +2110,7 @@ export function CandidateResults() {
             const answeredTurns = s.turns
               ? s.turns.filter((t: any) => t.answer).length
               : 0;
-            const score = evalObj.overallScore || 80;
+            const score = evalObj.overallScore ?? 80;
             const jobName =
               s.job_profile_json?.title ||
               s.cv_profile_json?.target_role ||
@@ -2116,12 +2122,20 @@ export function CandidateResults() {
                 key={s.session_id || actualIndex}
                 style={{
                   borderLeft:
-                    actualIndex === 0 ? "4px solid #10b981" : undefined,
+                    actualIndex === 0
+                      ? score === 0
+                        ? "4px solid #ef4444"
+                        : "4px solid #10b981"
+                      : undefined,
                 }}
               >
                 <span
                   className="candidate-job-icon"
-                  style={{ background: "#ecfdf5", color: "#059669" }}
+                  style={
+                    score === 0
+                      ? { background: "#fef2f2", color: "#dc2626" }
+                      : { background: "#ecfdf5", color: "#059669" }
+                  }
                 >
                   {s.current_stage
                     ? s.current_stage.slice(0, 2).toUpperCase()
@@ -2136,7 +2150,11 @@ export function CandidateResults() {
                   </small>
                 </p>
                 <div>
-                  <strong style={{ color: "#059669" }}>
+                  <strong
+                    style={{
+                      color: score === 0 ? "#dc2626" : "#059669",
+                    }}
+                  >
                     {score}
                     <small>/100</small>
                   </strong>
@@ -2153,11 +2171,18 @@ export function CandidateResults() {
         ) : hasRealSession ? (
           <div
             className="candidate-activity"
-            style={{ borderLeft: "4px solid #10b981" }}
+            style={{
+              borderLeft:
+                realScore === 0 ? "4px solid #ef4444" : "4px solid #10b981",
+            }}
           >
             <span
               className="candidate-job-icon"
-              style={{ background: "#ecfdf5", color: "#059669" }}
+              style={
+                realScore === 0
+                  ? { background: "#fef2f2", color: "#dc2626" }
+                  : { background: "#ecfdf5", color: "#059669" }
+              }
             >
               AI
             </span>
@@ -2173,7 +2198,11 @@ export function CandidateResults() {
               </small>
             </p>
             <div>
-              <strong style={{ color: "#059669" }}>
+              <strong
+                style={{
+                  color: realScore === 0 ? "#dc2626" : "#059669",
+                }}
+              >
                 {realScore}
                 <small>/100</small>
               </strong>
