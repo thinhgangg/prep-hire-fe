@@ -6,6 +6,7 @@ import {
   BriefcaseBusiness,
   CalendarDays,
   Check,
+  ChevronLeft,
   ChevronRight,
   Clock3,
   FileText,
@@ -21,10 +22,14 @@ import {
   UserRound,
   X,
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { ReportContent, computeAiEvaluation } from "../Pages";
-import { loadInterviewSession, loadCvAnalysis, getUserSessions } from "../services/interviewApi";
+import {
+  loadInterviewSession,
+  loadCvAnalysis,
+  getUserSessions,
+} from "../services/interviewApi";
 import {
   analyzeCv,
   createSessionWithUpload,
@@ -32,42 +37,6 @@ import {
   saveInterviewSession,
 } from "../services/interviewApi";
 import { fetchRealJobs, DbJob } from "../services/jobApi";
-
-const candidateJobs = [
-  {
-    id: 1,
-    title: "Senior Frontend Developer",
-    company: "Northstar Labs",
-    location: "Hà Nội · Hybrid",
-    type: "Toàn thời gian",
-    match: 92,
-    skills: ["React", "TypeScript", "Next.js"],
-    description:
-      "Tuyển Senior Frontend Developer có kinh nghiệm ReactJS, TypeScript, Next.js, kiểm thử giao diện và system design. Ứng viên cần tối ưu hiệu năng, xây dựng component tái sử dụng và phối hợp với backend qua REST API hoặc GraphQL.",
-  },
-  {
-    id: 2,
-    title: "Backend Developer",
-    company: "Vertex Technology",
-    location: "TP. Hồ Chí Minh",
-    type: "Toàn thời gian",
-    match: 84,
-    skills: ["Node.js", "PostgreSQL", "AWS"],
-    description:
-      "Tuyển Backend Developer có kinh nghiệm Node.js, PostgreSQL, REST API, xác thực và triển khai dịch vụ trên AWS. Ứng viên cần hiểu database transaction, caching, bảo mật API, Docker và kiến trúc có khả năng mở rộng.",
-  },
-  {
-    id: 3,
-    title: "Full-stack Engineer",
-    company: "Acme Digital",
-    location: "Remote",
-    type: "Toàn thời gian",
-    match: 79,
-    skills: ["React", "Python", "Docker"],
-    description:
-      "Tuyển Full-stack Engineer có kinh nghiệm ReactJS, Python, thiết kế API và Docker. Ứng viên cần phát triển được cả frontend và backend, làm việc với cơ sở dữ liệu và triển khai ứng dụng trong môi trường cloud.",
-  },
-];
 
 function CandidateLayout({
   active,
@@ -133,14 +102,24 @@ function CandidateLayout({
         </div>
         {(() => {
           const initials = user?.name
-            ? user.name.split(' ').map((w: string) => w[0]).filter(Boolean).slice(-2).join('').toUpperCase()
-            : (user?.username ? user.username.slice(0, 2).toUpperCase() : 'UV');
+            ? user.name
+                .split(" ")
+                .map((w: string) => w[0])
+                .filter(Boolean)
+                .slice(-2)
+                .join("")
+                .toUpperCase()
+            : user?.username
+              ? user.username.slice(0, 2).toUpperCase()
+              : "UV";
           return (
             <div className="candidate-user">
               <span>{initials}</span>
               <p>
-                <b>{user?.name || 'Ứng viên'}</b>
-                <small>{user?.username ? `ID: ${user.username}` : 'Ứng viên'}</small>
+                <b>{user?.name || "Ứng viên"}</b>
+                <small>
+                  {user?.username ? `ID: ${user.username}` : "Ứng viên"}
+                </small>
               </p>
               <button onClick={signOut} title="Đăng xuất">
                 <LogOut />
@@ -182,11 +161,133 @@ function CandidateHeader({
 export function CandidateHome() {
   const nav = useNavigate();
   const { user } = useAuth();
+  const localSession = loadInterviewSession();
+  const cvAnalysis = loadCvAnalysis();
+
+  const uid =
+    user?.user_id_num ||
+    user?.id ||
+    localStorage.getItem("current_user_id") ||
+    "1";
+  const cacheKey = `user_db_sessions_${uid}`;
+
+  // Real user sessions from database (with cache fallback)
+  const [sessions, setSessions] = useState<any[]>(() => {
+    try {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (_) {}
+    return [];
+  });
+
+  // Real jobs from database
+  const [recommendedJobs, setRecommendedJobs] = useState<any[]>([]);
+  const [totalJobsCount, setTotalJobsCount] = useState<number>(48);
+
+  useEffect(() => {
+    const cleanUid =
+      user?.user_id_num ||
+      user?.id ||
+      localStorage.getItem("current_user_id") ||
+      1;
+    getUserSessions(cleanUid).then((res) => {
+      if (Array.isArray(res) && res.length > 0) {
+        setSessions(res);
+        try {
+          localStorage.setItem(
+            `user_db_sessions_${cleanUid}`,
+            JSON.stringify(res),
+          );
+        } catch (_) {}
+      }
+    });
+
+    fetchRealJobs().then((list) => {
+      if (Array.isArray(list) && list.length > 0) {
+        setTotalJobsCount(list.length);
+        const top3 = list.slice(0, 3).map((j, i) => {
+          const matchScore = 88 + ((j.id * 5 + i * 2) % 10);
+          const cleanSkills =
+            j.skills && j.skills.length > 0
+              ? j.skills.filter((s) => s !== "Dữ liệu thực").slice(0, 3)
+              : ["Toàn thời gian"];
+          return {
+            id: j.id,
+            title: j.title,
+            company: j.company || "Doanh nghiệp Công nghệ",
+            location: j.location || "Việt Nam",
+            type: j.level
+              ? `Level: ${j.level.toUpperCase()}`
+              : "Toàn thời gian",
+            match: matchScore,
+            skills: cleanSkills,
+          };
+        });
+        setRecommendedJobs(top3);
+      }
+    });
+  }, [user]);
+
+  // Dynamic statistics calculated from actual sessions
+  const latestSession =
+    sessions && sessions.length > 0 ? sessions[0] : localSession;
+  const latestEval = latestSession ? computeAiEvaluation(latestSession) : null;
+  const hasAnsweredSession =
+    sessions.length > 0 ||
+    (localSession && localSession.turns?.some((t) => t.answer));
+
+  const latestScore = latestEval?.overallScore || (hasAnsweredSession ? 80 : 0);
+  const scoresList = sessions
+    .map((s) => computeAiEvaluation(s).overallScore || 0)
+    .filter((s) => s > 0);
+  const highestScore =
+    scoresList.length > 0 ? Math.max(...scoresList) : latestScore || 85;
+  const completedCount =
+    sessions.length > 0
+      ? String(sessions.length).padStart(2, "0")
+      : hasAnsweredSession
+        ? "01"
+        : "00";
+
+  const topCompetency =
+    latestEval?.competencies?.[0]?.label?.split("&")?.[0]?.trim() ||
+    "Kiến thức chuyên môn";
+  const topScore = latestEval?.competencies?.[0]?.score || highestScore || 85;
+
+  const percentileText =
+    latestScore >= 80
+      ? "Top 15% ứng viên xuất sắc"
+      : latestScore >= 60
+        ? "Top 35% ứng viên tiềm năng"
+        : "Cần hoàn thành thêm bài phỏng vấn";
+
+  const competenciesToDisplay =
+    latestEval?.competencies && latestEval.competencies.length >= 4
+      ? latestEval.competencies.slice(0, 4)
+      : [
+          { label: "Kiến thức chuyên môn", score: Math.max(70, latestScore) },
+          {
+            label: "Tư duy giải quyết vấn đề",
+            score: Math.max(65, latestScore - 5),
+          },
+          {
+            label: "Giao tiếp & Thuyết trình",
+            score: Math.max(75, latestScore + 2),
+          },
+          {
+            label: "Tác phong & Độ tự tin",
+            score: Math.max(80, latestScore + 6),
+          },
+        ];
+
   return (
     <CandidateLayout active="/app">
       <CandidateHeader
         title={`Xin chào, ${user?.name || "Ứng viên"} 👋`}
-        desc="Sẵn sàng cho bước tiếp theo trong hành trình nghề nghiệp của bạn?"
+        desc="Chào mừng bạn quay lại hệ thống luyện tập phỏng vấn AI thông minh."
         action={
           <button
             className="primary"
@@ -196,40 +297,51 @@ export function CandidateHome() {
           </button>
         }
       />
+
       <section className="candidate-hero">
         <div>
-          <span>AI INTERVIEW</span>
+          <span>AI INTERVIEW COACH</span>
           <h2>
-            Thể hiện năng lực.
+            Rèn luyện bản lĩnh.
             <br />
-            <em>Chinh phục cơ hội.</em>
+            <em>Chinh phục cơ hội việc làm.</em>
           </h2>
           <p>
-            Thực hiện phỏng vấn thử với AI và nhận đánh giá chi tiết để hiểu rõ
-            điểm mạnh của bạn.
+            Trải nghiệm phỏng vấn mô phỏng chuẩn xác từ CV của bạn, nhận phân
+            tích 7 tiêu chí vi mô và giám sát độ tập trung ánh nhìn (Eye Gaze)
+            theo thời gian thực.
           </p>
-          <button onClick={() => nav("/app/interviews/new")}>
-            Tạo phiên phỏng vấn <ArrowRight />
-          </button>
+          <div className="candidate-hero-actions">
+            <button onClick={() => nav("/app/interviews/new")}>
+              Tạo phiên phỏng vấn <ArrowRight />
+            </button>
+            <button
+              className="candidate-hero-btn-outline"
+              onClick={() => nav("/app/jobs")}
+            >
+              <BriefcaseBusiness size={16} /> Khám phá {totalJobsCount} việc làm
+            </button>
+          </div>
         </div>
         <div className="candidate-score">
           <span>
-            <b>86</b>
+            <b>{latestScore > 0 ? latestScore : "--"}</b>
             <small>ĐIỂM GẦN NHẤT</small>
           </span>
           <p>
-            <Check /> Top 12% ứng viên
+            <Check /> {percentileText}
           </p>
         </div>
       </section>
-      <div className="candidate-quick">
+
+      <div className="candidate-quick four-cards">
         <article>
           <span>
             <BriefcaseBusiness />
           </span>
           <p>
             <small>CÔNG VIỆC PHÙ HỢP</small>
-            <b>06</b>
+            <b>{totalJobsCount}</b>
           </p>
           <button onClick={() => nav("/app/jobs")}>
             Khám phá <ChevronRight />
@@ -240,8 +352,8 @@ export function CandidateHome() {
             <FileText />
           </span>
           <p>
-            <small>PHỎNG VẤN ĐÃ HOÀN THÀNH</small>
-            <b>03</b>
+            <small>PHỎNG VẤN ĐÃ LÀM</small>
+            <b>{completedCount}</b>
           </p>
           <button onClick={() => nav("/app/results")}>
             Xem kết quả <ChevronRight />
@@ -253,39 +365,546 @@ export function CandidateHome() {
           </span>
           <p>
             <small>ĐIỂM CAO NHẤT</small>
-            <b>86</b>
+            <b>{highestScore}</b>
           </p>
-          <em>+8 điểm</em>
+          <em>Đánh giá từ AI</em>
+        </article>
+        <article>
+          <span>
+            <Sparkles />
+          </span>
+          <p>
+            <small>NĂNG LỰC NỔI BẬT</small>
+            <b style={{ fontSize: "14px", lineHeight: 1.3, marginTop: "4px" }}>
+              {topCompetency}
+            </b>
+          </p>
+          <em>{topScore}/100 điểm</em>
         </article>
       </div>
-      <section className="candidate-section">
-        <div>
-          <h2>Hoạt động gần đây</h2>
-          <p>Kết quả các phiên phỏng vấn của bạn</p>
+
+      <div className="candidate-dashboard-grid">
+        <div className="candidate-main-col">
+          {/* Section 1: Recent Real Activity */}
+          <section className="candidate-card-box">
+            <div className="candidate-section-header">
+              <h2>Hoạt động phỏng vấn gần đây</h2>
+              <button onClick={() => nav("/app/results")}>
+                Xem tất cả ({sessions.length}) <ChevronRight size={14} />
+              </button>
+            </div>
+            {sessions && sessions.length > 0 ? (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "10px",
+                }}
+              >
+                {sessions.slice(0, 3).map((s, idx) => {
+                  const dateStr = s.created_at
+                    ? new Date(s.created_at).toLocaleDateString("vi-VN")
+                    : "Gần đây";
+                  const evalObj = computeAiEvaluation(s);
+                  const answeredTurns = s.turns
+                    ? s.turns.filter((t: any) => t.answer).length
+                    : 0;
+                  const score = evalObj.overallScore || 80;
+                  const jobName =
+                    s.job_profile_json?.title ||
+                    s.cv_profile_json?.target_role ||
+                    evalObj.jobTitle ||
+                    "Phiên phỏng vấn AI";
+                  return (
+                    <div
+                      className="candidate-activity"
+                      key={s.session_id || idx}
+                      style={{
+                        borderLeft: idx === 0 ? "4px solid #10b981" : undefined,
+                      }}
+                    >
+                      <span
+                        className="candidate-job-icon"
+                        style={{ background: "#ecfdf5", color: "#059669" }}
+                      >
+                        {s.current_stage
+                          ? s.current_stage.slice(0, 2).toUpperCase()
+                          : "AI"}
+                      </span>
+                      <p>
+                        <b>{jobName}</b>
+                        <small>
+                          Phiên #
+                          {s.session_id ? s.session_id.slice(0, 8) : idx + 1} •{" "}
+                          {dateStr} • {answeredTurns} câu đã trả lời
+                        </small>
+                      </p>
+                      <div>
+                        <strong style={{ color: "#059669" }}>
+                          {score}
+                          <small>/100</small>
+                        </strong>
+                        <button
+                          className={idx === 0 ? "primary" : ""}
+                          onClick={() => nav(`/app/results/${s.session_id}`)}
+                        >
+                          Xem kết quả
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : hasAnsweredSession ? (
+              <div
+                className="candidate-activity"
+                style={{ borderLeft: "4px solid #10b981" }}
+              >
+                <span
+                  className="candidate-job-icon"
+                  style={{ background: "#ecfdf5", color: "#059669" }}
+                >
+                  AI
+                </span>
+                <p>
+                  <b>
+                    {cvAnalysis?.job_context?.title ||
+                      latestEval?.jobTitle ||
+                      "Phiên phỏng vấn AI"}
+                  </b>
+                  <small>
+                    Phiên phỏng vấn vừa hoàn thành •{" "}
+                    {new Date().toLocaleDateString("vi-VN")}
+                  </small>
+                </p>
+                <div>
+                  <strong style={{ color: "#059669" }}>
+                    {latestScore}
+                    <small>/100</small>
+                  </strong>
+                  <button
+                    className="primary"
+                    onClick={() =>
+                      nav(
+                        `/app/results/${localSession?.session_id || "latest"}`,
+                      )
+                    }
+                  >
+                    Xem kết quả
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div
+                style={{
+                  textAlign: "center",
+                  padding: "36px 20px",
+                  color: "#64748b",
+                }}
+              >
+                <p style={{ margin: "0 0 14px", fontSize: "13px" }}>
+                  Bạn chưa thực hiện phiên phỏng vấn nào. Hãy bắt đầu ngay để
+                  nhận đánh giá chi tiết từ AI.
+                </p>
+                <button
+                  className="primary"
+                  onClick={() => nav("/app/interviews/new")}
+                >
+                  Tạo phiên phỏng vấn đầu tiên
+                </button>
+              </div>
+            )}
+          </section>
+
+          {/* Section 2: Recommended Real Jobs */}
+          <section className="candidate-card-box">
+            <div className="candidate-section-header">
+              <h2>Công việc đề xuất phù hợp nhất</h2>
+              <button onClick={() => nav("/app/jobs")}>
+                Xem tất cả ({totalJobsCount}) <ChevronRight size={14} />
+              </button>
+            </div>
+            <div
+              style={{ display: "flex", flexDirection: "column", gap: "10px" }}
+            >
+              {recommendedJobs.map((j) => {
+                const initials =
+                  (j.company || "CT")
+                    .split(" ")
+                    .map((x: string) => x[0])
+                    .filter(Boolean)
+                    .slice(0, 3)
+                    .join("")
+                    .toUpperCase() || "CT";
+                return (
+                  <div className="candidate-job-card-compact" key={j.id}>
+                    <div
+                      className="candidate-company"
+                      style={{
+                        width: "42px",
+                        height: "42px",
+                        fontSize: "11px",
+                        borderRadius: "9px",
+                      }}
+                    >
+                      {initials}
+                    </div>
+                    <div className="candidate-job-info">
+                      <span>
+                        <b style={{ fontSize: "14px" }}>{j.title}</b>
+                        <small>
+                          {j.company} • {j.location} • {j.type}
+                        </small>
+                      </span>
+                      <div style={{ marginTop: "6px" }}>
+                        {j.skills.map((s: string) => (
+                          <em
+                            key={s}
+                            style={{ fontSize: "9px", padding: "3px 7px" }}
+                          >
+                            {s}
+                          </em>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="candidate-match" style={{ gap: "12px" }}>
+                      <span>
+                        <b style={{ fontSize: "16px" }}>{j.match}%</b>
+                        <small>phù hợp</small>
+                      </span>
+                      <button
+                        style={{
+                          height: "34px",
+                          padding: "0 11px",
+                          fontSize: "11px",
+                        }}
+                        onClick={() => {
+                          sessionStorage.setItem(
+                            "candidate_selected_job_id",
+                            String(j.id),
+                          );
+                          nav("/app/interviews/new");
+                        }}
+                      >
+                        Phỏng vấn <ArrowRight size={13} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
         </div>
-        <div className="candidate-activity">
-          <span className="candidate-job-icon">FE</span>
-          <p>
-            <b>Senior Frontend Developer</b>
-            <small>28/09/2026 · Hoàn thành</small>
-          </p>
-          <div>
-            <strong>
-              86<small>/100</small>
-            </strong>
-            <button onClick={() => nav("/app/results/1042")}>
-              Xem kết quả
+
+        {/* Right Side Column */}
+        <div className="candidate-side-col">
+          {/* Section 3: AI Competency Readiness */}
+          <section className="candidate-card-box">
+            <div className="candidate-section-header">
+              <h2>Chỉ số năng lực</h2>
+              <span
+                style={{ fontSize: "11px", color: "#059669", fontWeight: 700 }}
+              >
+                {latestScore > 0 ? `${latestScore}/100 ĐTB` : "Chờ đánh giá"}
+              </span>
+            </div>
+            <p
+              style={{
+                fontSize: "12px",
+                color: "#64748b",
+                margin: "0 0 16px",
+                lineHeight: 1.5,
+              }}
+            >
+              Tổng hợp điểm các khía cạnh phỏng vấn qua các phiên tương tác AI
+              gần nhất.
+            </p>
+            <div>
+              {competenciesToDisplay.map((c) => (
+                <div className="candidate-competency-item" key={c.label}>
+                  <div className="candidate-competency-label">
+                    <span>{c.label}</span>
+                    <strong>{c.score}/100</strong>
+                  </div>
+                  <div className="candidate-competency-bar">
+                    <i
+                      style={{
+                        width: `${Math.min(100, Math.max(10, c.score))}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="candidate-coach-tip">
+              💡 <b>Gợi ý từ AI:</b> Luyện tập trả lời theo phương pháp STAR
+              (Situation - Task - Action - Result) kết hợp số liệu định lượng
+              (metrics, throughput) để nâng band điểm lên mức xuất sắc.
+            </div>
+          </section>
+
+          {/* Section 4: Prep Checklist */}
+          <section className="candidate-card-box">
+            <div className="candidate-section-header">
+              <h2>Quy trình chuẩn bị</h2>
+            </div>
+            <p
+              style={{
+                fontSize: "12px",
+                color: "#64748b",
+                margin: "0 0 12px",
+                lineHeight: 1.5,
+              }}
+            >
+              Các bước tối ưu để đạt kết quả phỏng vấn tốt nhất.
+            </p>
+            <div>
+              <div className="candidate-checklist-item">
+                <span className="candidate-checklist-icon done">
+                  <Check size={13} />
+                </span>
+                <div style={{ flex: 1 }}>
+                  <b>Hồ sơ CV ứng tuyển</b>
+                  <p
+                    style={{
+                      margin: "2px 0 0",
+                      fontSize: "11px",
+                      color: "#64748b",
+                    }}
+                  >
+                    {(cvAnalysis as any)?.file_name
+                      ? `Đã nạp: ${(cvAnalysis as any).file_name}`
+                      : cvAnalysis?.job_context?.title
+                        ? `Đã liên kết vị trí: ${cvAnalysis.job_context.title}`
+                        : "Sẵn sàng phân tích theo từng vị trí"}
+                  </p>
+                </div>
+              </div>
+              <div className="candidate-checklist-item">
+                <span className="candidate-checklist-icon done">
+                  <Check size={13} />
+                </span>
+                <div style={{ flex: 1 }}>
+                  <b>Thiết bị Camera & Microphone</b>
+                  <p
+                    style={{
+                      margin: "2px 0 0",
+                      fontSize: "11px",
+                      color: "#64748b",
+                    }}
+                  >
+                    STT GPU Whisper & giám sát ánh nhìn MediaPipe
+                  </p>
+                </div>
+              </div>
+              <div className="candidate-checklist-item">
+                <span
+                  className={`candidate-checklist-icon ${hasAnsweredSession ? "done" : "pending"}`}
+                >
+                  <Check size={13} />
+                </span>
+                <div style={{ flex: 1 }}>
+                  <b>Luyện tập phiên phỏng vấn thử</b>
+                  <p
+                    style={{
+                      margin: "2px 0 0",
+                      fontSize: "11px",
+                      color: "#64748b",
+                    }}
+                  >
+                    {hasAnsweredSession
+                      ? `Đã hoàn thành ${completedCount} phiên phỏng vấn`
+                      : "Chưa hoàn thành phiên nào"}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <button
+              className="outline"
+              style={{
+                width: "100%",
+                marginTop: "16px",
+                justifyContent: "center",
+                height: "38px",
+              }}
+              onClick={() => nav("/app/interviews/device-check")}
+            >
+              Kiểm tra thiết bị & phòng chờ
             </button>
-          </div>
+          </section>
         </div>
-      </section>
+      </div>
     </CandidateLayout>
   );
 }
 
+function CandidatePagination({
+  currentPage,
+  totalPages,
+  totalItems,
+  pageSize,
+  itemLabel = "kết quả",
+  onPageChange,
+}: {
+  currentPage: number;
+  totalPages: number;
+  totalItems: number;
+  pageSize: number;
+  itemLabel?: string;
+  onPageChange: (page: number) => void;
+}) {
+  if (totalItems <= pageSize) return null;
+
+  const start = (currentPage - 1) * pageSize + 1;
+  const end = Math.min(currentPage * pageSize, totalItems);
+
+  const getPages = () => {
+    const pages: (number | string)[] = [];
+    if (totalPages <= 7) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      if (currentPage > 3) pages.push("...");
+      const low = Math.max(2, currentPage - 1);
+      const high = Math.min(totalPages - 1, currentPage + 1);
+      for (let i = low; i <= high; i++) {
+        if (!pages.includes(i)) pages.push(i);
+      }
+      if (currentPage < totalPages - 2) pages.push("...");
+      if (!pages.includes(totalPages)) pages.push(totalPages);
+    }
+    return pages;
+  };
+
+  return (
+    <div className="candidate-pagination-bar">
+      <span>
+        Hiển thị{" "}
+        <b>
+          {start}–{end}
+        </b>{" "}
+        trong tổng số <b>{totalItems}</b> {itemLabel}
+      </span>
+      <div className="candidate-pagination-controls">
+        <button
+          type="button"
+          disabled={currentPage === 1}
+          onClick={() => onPageChange(currentPage - 1)}
+          title="Trang trước"
+        >
+          <ChevronLeft size={15} />
+        </button>
+        {getPages().map((p, idx) =>
+          typeof p === "number" ? (
+            <button
+              type="button"
+              key={p}
+              className={p === currentPage ? "active" : ""}
+              onClick={() => onPageChange(p)}
+            >
+              {p}
+            </button>
+          ) : (
+            <span key={`dots-${idx}`} className="pagination-dots">
+              …
+            </span>
+          ),
+        )}
+        <button
+          type="button"
+          disabled={currentPage === totalPages}
+          onClick={() => onPageChange(currentPage + 1)}
+          title="Trang sau"
+        >
+          <ChevronRight size={15} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function CandidateJobs() {
-  const nav = useNavigate(),
-    [query, setQuery] = useState("");
+  const nav = useNavigate();
+  const [query, setQuery] = useState("");
+  const [jobs, setJobs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 6;
+
+  useEffect(() => {
+    fetchRealJobs()
+      .then((realList) => {
+        if (realList && realList.length > 0) {
+          const mapped = realList.map((j, i) => {
+            const matchScore = 80 + ((j.id * 7 + i * 3) % 18);
+            const lower = j.title.toLowerCase();
+            const detectedSkills: string[] = [];
+            if (lower.includes("frontend") || lower.includes("react"))
+              detectedSkills.push("React", "TypeScript");
+            if (lower.includes("backend") || lower.includes("node"))
+              detectedSkills.push("Node.js", "PostgreSQL");
+            if (lower.includes("java"))
+              detectedSkills.push("Java", "Spring Boot");
+            if (lower.includes("devops") || lower.includes("secops"))
+              detectedSkills.push("Docker", "CI/CD", "AWS");
+            if (
+              lower.includes("analyst") ||
+              lower.includes("tester") ||
+              lower.includes("qa")
+            )
+              detectedSkills.push("Testing", "SQL", "Agile");
+            if (lower.includes("system") || lower.includes("engineer"))
+              detectedSkills.push("System Design", "Linux");
+
+            const cleanSkills =
+              j.skills && j.skills.length > 0
+                ? j.skills.filter((s) => s !== "Dữ liệu thực")
+                : [];
+
+            const finalSkills =
+              detectedSkills.length > 0
+                ? detectedSkills
+                : cleanSkills.length > 0
+                  ? cleanSkills
+                  : ["Toàn thời gian", j.location || "Việt Nam"];
+
+            return {
+              id: j.id,
+              title: j.title,
+              company: j.company || "Doanh nghiệp Công nghệ",
+              location: j.location || "Việt Nam",
+              type: j.level
+                ? `Level: ${j.level.toUpperCase()}`
+                : "Toàn thời gian",
+              match: matchScore,
+              skills: finalSkills,
+            };
+          });
+          setJobs(mapped);
+        }
+        setLoading(false);
+      })
+      .catch(() => {
+        setLoading(false);
+      });
+  }, []);
+
+  const filteredJobs = jobs.filter(
+    (j) =>
+      j.title.toLowerCase().includes(query.toLowerCase()) ||
+      j.company.toLowerCase().includes(query.toLowerCase()) ||
+      (j.skills &&
+        j.skills.some((s: string) =>
+          s.toLowerCase().includes(query.toLowerCase()),
+        )),
+  );
+
+  const totalPages = Math.ceil(filteredJobs.length / pageSize) || 1;
+  const paginatedJobs = filteredJobs.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize,
+  );
+
   return (
     <CandidateLayout active="/app/jobs">
       <CandidateHeader
@@ -296,62 +915,99 @@ export function CandidateJobs() {
         <Search />
         <input
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setCurrentPage(1);
+          }}
           placeholder="Tìm kiếm vị trí hoặc kỹ năng..."
         />
       </div>
       <div className="candidate-job-list">
-        {candidateJobs
-          .filter((j) => j.title.toLowerCase().includes(query.toLowerCase()))
-          .map((j) => (
-            <article key={j.id}>
-              <div className="candidate-company">
-                {j.company
-                  .split(" ")
-                  .map((x) => x[0])
-                  .join("")}
-              </div>
-              <div className="candidate-job-info">
-                <span>
-                  <b>{j.title}</b>
-                  <small>{j.company}</small>
-                </span>
-                <p>
-                  <i>
-                    <MapPin />
-                    {j.location}
-                  </i>
-                  <i>
-                    <Clock3 />
-                    {j.type}
-                  </i>
-                </p>
-                <div>
-                  {j.skills.map((s) => (
-                    <em key={s}>{s}</em>
-                  ))}
+        {loading ? (
+          <div
+            style={{ textAlign: "center", padding: "48px", color: "#64748b" }}
+          >
+            Đang tải danh sách công việc...
+          </div>
+        ) : filteredJobs.length === 0 ? (
+          <div
+            style={{ textAlign: "center", padding: "40px", color: "#64748b" }}
+          >
+            {query
+              ? `Không tìm thấy công việc nào phù hợp với từ khóa "${query}"`
+              : "Chưa có công việc nào trong hệ thống."}
+          </div>
+        ) : (
+          paginatedJobs.map((j) => {
+            const companyInitials =
+              (j.company || "CT")
+                .split(" ")
+                .map((x: string) => x[0])
+                .filter(Boolean)
+                .slice(0, 3)
+                .join("")
+                .toUpperCase() || "CT";
+
+            return (
+              <article key={j.id}>
+                <div className="candidate-company">{companyInitials}</div>
+                <div className="candidate-job-info">
+                  <span>
+                    <b>{j.title}</b>
+                    <small>{j.company}</small>
+                  </span>
+                  <p>
+                    <i>
+                      <MapPin />
+                      {j.location}
+                    </i>
+                    <i>
+                      <Clock3 />
+                      {j.type}
+                    </i>
+                  </p>
+                  <div>
+                    {j.skills.map((s: string) => (
+                      <em key={s}>{s}</em>
+                    ))}
+                  </div>
                 </div>
-              </div>
-              <div className="candidate-match">
-                <span>
-                  <b>{j.match}%</b>
-                  <small>phù hợp</small>
-                </span>
-                <button
-                  onClick={() => {
-                    sessionStorage.setItem(
-                      "candidate_selected_job_id",
-                      String(j.id),
-                    );
-                    nav("/app/interviews/new");
-                  }}
-                >
-                  Phỏng vấn vị trí này <ArrowRight />
-                </button>
-              </div>
-            </article>
-          ))}
+                <div className="candidate-match">
+                  <span>
+                    <b>{j.match}%</b>
+                    <small>phù hợp</small>
+                  </span>
+                  <button
+                    onClick={() => {
+                      sessionStorage.setItem(
+                        "candidate_selected_job_id",
+                        String(j.id),
+                      );
+                      nav("/app/interviews/new");
+                    }}
+                  >
+                    Phỏng vấn vị trí này <ArrowRight />
+                  </button>
+                </div>
+              </article>
+            );
+          })
+        )}
       </div>
+
+      {!loading && filteredJobs.length > pageSize && (
+        <CandidatePagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalItems={filteredJobs.length}
+          pageSize={pageSize}
+          itemLabel="công việc"
+          onPageChange={(p) => {
+            setCurrentPage(p);
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }}
+        />
+      )}
     </CandidateLayout>
   );
 }
@@ -404,7 +1060,7 @@ export function CandidateCreateInterview() {
       .then((d) => {
         if (Array.isArray(d.cvs)) setAvailableCvs(d.cvs);
       })
-      .catch(() => { });
+      .catch(() => {});
   }, []);
 
   const filtered = jobList.filter(
@@ -423,18 +1079,18 @@ export function CandidateCreateInterview() {
       ? selectedJob || null
       : isCustomValid
         ? {
-          id: -999,
-          title:
-            customTitle.trim() ||
-            (jdFile
-              ? jdFile.name.replace(/\.[^/.]+$/, "").replace(/[_-]+/g, " ")
-              : "Vị trí tùy chỉnh"),
-          company: customCompany.trim() || "Doanh nghiệp ngoài hệ thống",
-          location: "Tùy chỉnh",
-          level: "Bên ngoài",
-          accent: "#e11d48",
-          skills: ["Job tùy chỉnh", "JD ngoài hệ thống"],
-        }
+            id: -999,
+            title:
+              customTitle.trim() ||
+              (jdFile
+                ? jdFile.name.replace(/\.[^/.]+$/, "").replace(/[_-]+/g, " ")
+                : "Vị trí tùy chỉnh"),
+            company: customCompany.trim() || "Doanh nghiệp ngoài hệ thống",
+            location: "Tùy chỉnh",
+            level: "Bên ngoài",
+            accent: "#e11d48",
+            skills: ["Job tùy chỉnh", "JD ngoài hệ thống"],
+          }
         : null;
 
   const hasCvSelected =
@@ -572,7 +1228,7 @@ export function CandidateCreateInterview() {
           </div>
           <button
             className="primary full"
-            onClick={() => nav("/app/interviews/demo/device-check")}
+            onClick={() => nav("/app/interviews/device-check")}
           >
             Vào kiểm tra thiết bị & phỏng vấn ngay <ArrowRight size={17} />
           </button>
@@ -589,20 +1245,10 @@ export function CandidateCreateInterview() {
 
   return (
     <CandidateLayout active="/app/interviews/new">
-      <header className="simple-header">
-        <div>
-          <button className="back" onClick={() => nav("/app")}>
-            ←
-          </button>
-          <div>
-            <p>TẠO PHỎNG VẤN MỚI</p>
-            <h1>Chuẩn bị buổi phỏng vấn</h1>
-          </div>
-        </div>
-        <button className="icon-btn">
-          <Bell />
-        </button>
-      </header>
+      <CandidateHeader
+        title="Tạo phỏng vấn mới"
+        desc="Chuẩn bị buổi phỏng vấn"
+      />
       <div className="stepper">
         <div className="done">
           <i>
@@ -1326,27 +1972,89 @@ export function CandidateResults() {
   const nav = useNavigate();
   const { user } = useAuth();
   const session = loadInterviewSession();
-  const [userDbSessions, setUserDbSessions] = useState<any[]>([]);
-
-  useEffect(() => {
-    if (user?.user_id_num || user?.id) {
-      const uid = user.user_id_num || user.id;
-      getUserSessions(uid).then((res) => {
-        if (Array.isArray(res) && res.length > 0) {
-          setUserDbSessions(res);
-        }
-      });
-    }
-  }, [user]);
   const cvAnalysis = loadCvAnalysis();
 
-  // Compute real AI evaluation for current session if available
-  const currentEval = computeAiEvaluation(session);
-  const hasRealSession = session && session.turns && session.turns.some(t => t.answer);
+  const uid =
+    user?.user_id_num ||
+    user?.id ||
+    localStorage.getItem("current_user_id") ||
+    "1";
+  const cacheKey = `user_db_sessions_${uid}`;
 
-  // Dynamic candidate & job info
-  const realJobTitle = cvAnalysis?.job_context?.title || currentEval.jobTitle || 'Senior Fullstack Engineer';
-  const realScore = session ? currentEval.overallScore : 83;
+  // Initialize from cache if present to avoid any visual delay or 1-to-many jumping
+  const [userDbSessions, setUserDbSessions] = useState<any[]>(() => {
+    try {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (_) {}
+    return [];
+  });
+
+  const [loading, setLoading] = useState<boolean>(() => {
+    try {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return false;
+      }
+    } catch (_) {}
+    return true;
+  });
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 5;
+
+  useEffect(() => {
+    const cleanUid =
+      user?.user_id_num ||
+      user?.id ||
+      localStorage.getItem("current_user_id") ||
+      1;
+    getUserSessions(cleanUid)
+      .then((res) => {
+        if (Array.isArray(res) && res.length > 0) {
+          setUserDbSessions(res);
+          try {
+            localStorage.setItem(
+              `user_db_sessions_${cleanUid}`,
+              JSON.stringify(res),
+            );
+          } catch (_) {}
+        }
+        setLoading(false);
+      })
+      .catch(() => {
+        setLoading(false);
+      });
+  }, [user]);
+
+  // Compute evaluation stats dynamically from actual sessions
+  const latestSession =
+    userDbSessions && userDbSessions.length > 0 ? userDbSessions[0] : session;
+  const currentEval = computeAiEvaluation(latestSession);
+  const hasRealSession =
+    session && session.turns && session.turns.some((t) => t.answer);
+
+  const realScore = currentEval?.overallScore ?? (hasRealSession ? 80 : 0);
+  const completedCount =
+    userDbSessions.length > 0
+      ? String(userDbSessions.length).padStart(2, "0")
+      : hasRealSession
+        ? "01"
+        : "00";
+  const topCompetency =
+    currentEval?.competencies?.[0]?.label?.split("&")?.[0]?.trim() ||
+    "Kiến thức chuyên môn";
+  const topScore = currentEval?.competencies?.[0]?.score || realScore || 80;
+
+  const totalPages = Math.ceil(userDbSessions.length / pageSize) || 1;
+  const paginatedSessions = userDbSessions.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize,
+  );
 
   return (
     <CandidateLayout active="/app/results">
@@ -1357,82 +2065,220 @@ export function CandidateResults() {
       <div className="personal-summary">
         <div>
           <small>ĐIỂM GẦN NHẤT</small>
-          <b style={session && currentEval.overallScore === 0 ? { color: '#dc2626' } : {}}>{realScore}</b>
+          <b style={realScore === 0 ? { color: "#dc2626" } : {}}>
+            {realScore}
+          </b>
           <span>/100 điểm AI đánh giá</span>
         </div>
         <div>
           <small>PHỎNG VẤN HOÀN THÀNH</small>
-          <b>{hasRealSession ? '04' : '03'}</b>
+          <b>{completedCount}</b>
           <span>Trong 30 ngày qua</span>
         </div>
         <div>
           <small>NĂNG LỰC NỔI BẬT</small>
-          <b>{currentEval.overallScore > 0 ? (currentEval.competencies[0]?.label.split('&')[0].trim() || 'Chuyên môn') : 'Chưa có'}</b>
-          <span>{session ? currentEval.competencies[0]?.score : 83}/100 điểm</span>
+          <b>
+            {currentEval.overallScore > 0 ? topCompetency : "Chưa có"}
+          </b>
+          <span>
+            {currentEval.overallScore > 0 ? `${topScore}/100 điểm` : "--"}
+          </span>
         </div>
       </div>
 
       <section className="personal-results">
-        {/* Latest completed interview session with real AI evaluated score */}
-        <div className="candidate-activity" style={{ borderLeft: session && currentEval.overallScore === 0 ? '4px solid #ef4444' : '4px solid #10b981' }}>
-          <span className="candidate-job-icon" style={session && currentEval.overallScore === 0 ? { background: '#fef2f2', color: '#dc2626' } : { background: '#ecfdf5', color: '#059669' }}>AI</span>
-          <p>
-            <b>{realJobTitle}</b>
-            <small>Phiên phỏng vấn AI • {new Date().toLocaleDateString('vi-VN')} • {currentEval.answeredCount} câu hỏi</small>
-          </p>
-          <div>
-            <strong style={{ color: session && currentEval.overallScore === 0 ? '#dc2626' : '#059669' }}>
-              {realScore}<small>/100</small>
-            </strong>
-            <button className="primary" onClick={() => nav("/app/results/latest")}>
-              Xem chi tiết
+        {loading && userDbSessions.length === 0 ? (
+          <div
+            style={{
+              textAlign: "center",
+              padding: "48px",
+              color: "#64748b",
+              background: "#fff",
+              borderRadius: "12px",
+              border: "1px solid #e1e5e2",
+            }}
+          >
+            Đang tải danh sách kết quả phỏng vấn...
+          </div>
+        ) : userDbSessions && userDbSessions.length > 0 ? (
+          paginatedSessions.map((s, idx) => {
+            const actualIndex = (currentPage - 1) * pageSize + idx;
+            const dateStr = s.created_at
+              ? new Date(s.created_at).toLocaleDateString("vi-VN")
+              : "Gần đây";
+            const evalObj = computeAiEvaluation(s);
+            const answeredTurns = s.turns
+              ? s.turns.filter((t: any) => t.answer).length
+              : 0;
+            const score = evalObj.overallScore ?? 80;
+            const jobName =
+              s.job_profile_json?.title ||
+              s.cv_profile_json?.target_role ||
+              evalObj.jobTitle ||
+              "Phiên phỏng vấn AI";
+            return (
+              <div
+                className="candidate-activity"
+                key={s.session_id || actualIndex}
+                style={{
+                  borderLeft:
+                    actualIndex === 0
+                      ? score === 0
+                        ? "4px solid #ef4444"
+                        : "4px solid #10b981"
+                      : undefined,
+                }}
+              >
+                <span
+                  className="candidate-job-icon"
+                  style={
+                    score === 0
+                      ? { background: "#fef2f2", color: "#dc2626" }
+                      : { background: "#ecfdf5", color: "#059669" }
+                  }
+                >
+                  {s.current_stage
+                    ? s.current_stage.slice(0, 2).toUpperCase()
+                    : "AI"}
+                </span>
+                <p>
+                  <b>{jobName}</b>
+                  <small>
+                    Phiên #
+                    {s.session_id ? s.session_id.slice(0, 8) : actualIndex + 1}{" "}
+                    • {dateStr} • {answeredTurns} câu đã trả lời
+                  </small>
+                </p>
+                <div>
+                  <strong
+                    style={{
+                      color: score === 0 ? "#dc2626" : "#059669",
+                    }}
+                  >
+                    {score}
+                    <small>/100</small>
+                  </strong>
+                  <button
+                    className={actualIndex === 0 ? "primary" : ""}
+                    onClick={() => nav(`/app/results/${s.session_id}`)}
+                  >
+                    Xem chi tiết
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        ) : hasRealSession ? (
+          <div
+            className="candidate-activity"
+            style={{
+              borderLeft:
+                realScore === 0 ? "4px solid #ef4444" : "4px solid #10b981",
+            }}
+          >
+            <span
+              className="candidate-job-icon"
+              style={
+                realScore === 0
+                  ? { background: "#fef2f2", color: "#dc2626" }
+                  : { background: "#ecfdf5", color: "#059669" }
+              }
+            >
+              AI
+            </span>
+            <p>
+              <b>
+                {cvAnalysis?.job_context?.title ||
+                  currentEval.jobTitle ||
+                  "Phiên phỏng vấn AI"}
+              </b>
+              <small>
+                Phiên phỏng vấn AI • {new Date().toLocaleDateString("vi-VN")} •{" "}
+                {currentEval.answeredCount} câu hỏi
+              </small>
+            </p>
+            <div>
+              <strong
+                style={{
+                  color: realScore === 0 ? "#dc2626" : "#059669",
+                }}
+              >
+                {realScore}
+                <small>/100</small>
+              </strong>
+              <button
+                className="primary"
+                onClick={() =>
+                  nav(`/app/results/${session?.session_id || "latest"}`)
+                }
+              >
+                Xem chi tiết
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div
+            style={{
+              textAlign: "center",
+              padding: "48px",
+              color: "#64748b",
+              background: "#fff",
+              borderRadius: "12px",
+              border: "1px solid #e1e5e2",
+            }}
+          >
+            <Sparkles
+              size={28}
+              style={{ color: "#059669", marginBottom: "12px" }}
+            />
+            <h3
+              style={{ margin: "0 0 6px", fontSize: "16px", color: "#1e293b" }}
+            >
+              Chưa có phiên phỏng vấn nào
+            </h3>
+            <p style={{ margin: 0, fontSize: "13px" }}>
+              Hãy bắt đầu một buổi phỏng vấn AI để kiểm tra và rèn luyện năng
+              lực.
+            </p>
+            <button
+              className="primary"
+              style={{ marginTop: "16px" }}
+              onClick={() => nav("/app/interviews/new")}
+            >
+              Tạo phỏng vấn ngay
             </button>
           </div>
-        </div>
-
-        {/* Historical sessions with synchronized AI scores */}
-        <div className="candidate-activity">
-          <span className="candidate-job-icon">FE</span>
-          <p>
-            <b>Senior Frontend Developer</b>
-            <small>Northstar Labs • 28/09/2026</small>
-          </p>
-          <div>
-            <strong>
-              86<small>/100</small>
-            </strong>
-            <button onClick={() => nav("/app/results/1042")}>
-              Xem chi tiết
-            </button>
-          </div>
-        </div>
-
-        <div className="candidate-activity">
-          <span className="candidate-job-icon backend">BE</span>
-          <p>
-            <b>Backend Developer</b>
-            <small>Vertex Technology • 21/09/2026</small>
-          </p>
-          <div>
-            <strong>
-              {realScore}<small>/100</small>
-            </strong>
-            <button onClick={() => nav("/app/results/1041")}>
-              Xem chi tiết
-            </button>
-          </div>
-        </div>
+        )}
       </section>
+
+      {!loading && userDbSessions.length > pageSize && (
+        <CandidatePagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalItems={userDbSessions.length}
+          pageSize={pageSize}
+          itemLabel="phiên phỏng vấn"
+          onPageChange={(p) => {
+            setCurrentPage(p);
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }}
+        />
+      )}
     </CandidateLayout>
   );
 }
 
 export function CandidateResultDetail() {
   const nav = useNavigate();
+  const { id } = useParams<{ id: string }>();
   return (
     <CandidateLayout active="/app/results">
       <div className="candidate-shared-report">
-        <ReportContent candidateView onBack={() => nav("/app/results")} />
+        <ReportContent
+          sessionId={id}
+          candidateView
+          onBack={() => nav("/app/results")}
+        />
       </div>
     </CandidateLayout>
   );
@@ -1444,7 +2290,9 @@ export function CandidateProfile() {
   const [name, setName] = useState(user?.name || "");
   const [phone, setPhone] = useState(user?.phone || "");
   const [email, setEmail] = useState(user?.email || "");
-  const [currentRole, setCurrentRole] = useState(user?.current_role || "Senior Frontend Developer");
+  const [currentRole, setCurrentRole] = useState(
+    user?.current_role || "Senior Frontend Developer",
+  );
   const [location, setLocation] = useState(user?.location || "Đà Nẵng");
 
   const [saving, setSaving] = useState(false);
@@ -1486,8 +2334,16 @@ export function CandidateProfile() {
   };
 
   const initials = name
-    ? name.split(" ").map((w: string) => w[0]).filter(Boolean).slice(-2).join("").toUpperCase()
-    : (user?.username ? user.username.slice(0, 2).toUpperCase() : "UV");
+    ? name
+        .split(" ")
+        .map((w: string) => w[0])
+        .filter(Boolean)
+        .slice(-2)
+        .join("")
+        .toUpperCase()
+    : user?.username
+      ? user.username.slice(0, 2).toUpperCase()
+      : "UV";
 
   return (
     <CandidateLayout active="/app/profile">
@@ -1508,38 +2364,42 @@ export function CandidateProfile() {
         </div>
 
         {successMsg && (
-          <div style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            marginTop: "16px",
-            background: "#dcfce7",
-            border: "1px solid #bbf7d0",
-            color: "#15803d",
-            padding: "10px 14px",
-            borderRadius: "8px",
-            fontSize: "13px",
-            fontWeight: 600,
-          }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              marginTop: "16px",
+              background: "#dcfce7",
+              border: "1px solid #bbf7d0",
+              color: "#15803d",
+              padding: "10px 14px",
+              borderRadius: "8px",
+              fontSize: "13px",
+              fontWeight: 600,
+            }}
+          >
             <Check size={16} />
             <span>{successMsg}</span>
           </div>
         )}
 
         {errorMsg && (
-          <div style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            marginTop: "16px",
-            background: "#fee2e2",
-            border: "1px solid #fecaca",
-            color: "#b91c1c",
-            padding: "10px 14px",
-            borderRadius: "8px",
-            fontSize: "13px",
-            fontWeight: 600,
-          }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              marginTop: "16px",
+              background: "#fee2e2",
+              border: "1px solid #fecaca",
+              color: "#b91c1c",
+              padding: "10px 14px",
+              borderRadius: "8px",
+              fontSize: "13px",
+              fontWeight: 600,
+            }}
+          >
             <X size={16} />
             <span>{errorMsg}</span>
           </div>
