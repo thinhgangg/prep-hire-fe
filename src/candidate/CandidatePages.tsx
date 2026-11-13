@@ -404,7 +404,7 @@ export function CandidateCreateInterview() {
       .then((d) => {
         if (Array.isArray(d.cvs)) setAvailableCvs(d.cvs);
       })
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   const filtered = jobList.filter(
@@ -423,18 +423,18 @@ export function CandidateCreateInterview() {
       ? selectedJob || null
       : isCustomValid
         ? {
-            id: -999,
-            title:
-              customTitle.trim() ||
-              (jdFile
-                ? jdFile.name.replace(/\.[^/.]+$/, "").replace(/[_-]+/g, " ")
-                : "Vị trí tùy chỉnh"),
-            company: customCompany.trim() || "Doanh nghiệp ngoài hệ thống",
-            location: "Tùy chỉnh",
-            level: "Bên ngoài",
-            accent: "#e11d48",
-            skills: ["Job tùy chỉnh", "JD ngoài hệ thống"],
-          }
+          id: -999,
+          title:
+            customTitle.trim() ||
+            (jdFile
+              ? jdFile.name.replace(/\.[^/.]+$/, "").replace(/[_-]+/g, " ")
+              : "Vị trí tùy chỉnh"),
+          company: customCompany.trim() || "Doanh nghiệp ngoài hệ thống",
+          location: "Tùy chỉnh",
+          level: "Bên ngoài",
+          accent: "#e11d48",
+          skills: ["Job tùy chỉnh", "JD ngoài hệ thống"],
+        }
         : null;
 
   const hasCvSelected =
@@ -1439,7 +1439,56 @@ export function CandidateResultDetail() {
 }
 
 export function CandidateProfile() {
-  const { user } = useAuth();
+  const { user, updateProfile } = useAuth();
+
+  const [name, setName] = useState(user?.name || "");
+  const [phone, setPhone] = useState(user?.phone || "");
+  const [email, setEmail] = useState(user?.email || "");
+  const [currentRole, setCurrentRole] = useState(user?.current_role || "Senior Frontend Developer");
+  const [location, setLocation] = useState(user?.location || "Đà Nẵng");
+
+  const [saving, setSaving] = useState(false);
+  const [successMsg, setSuccessMsg] = useState("");
+  const [errorMsg, setErrorMsg] = useState("");
+
+  // Sync state if user changes or on first mount
+  useEffect(() => {
+    if (user) {
+      if (user.name) setName(user.name);
+      if (user.phone) setPhone(user.phone);
+      if (user.email) setEmail(user.email);
+      if (user.current_role) setCurrentRole(user.current_role);
+      if (user.location) setLocation(user.location);
+    }
+  }, [user]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setSuccessMsg("");
+    setErrorMsg("");
+
+    try {
+      await updateProfile({
+        name: name.trim(),
+        phone: phone.trim(),
+        email: email.trim(),
+        current_role: currentRole.trim(),
+        location: location.trim(),
+      });
+      setSuccessMsg("Cập nhật hồ sơ thành công!");
+      setTimeout(() => setSuccessMsg(""), 4000);
+    } catch (err: any) {
+      setErrorMsg(err?.message || "Cập nhật hồ sơ thất bại. Vui lòng thử lại.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const initials = name
+    ? name.split(" ").map((w: string) => w[0]).filter(Boolean).slice(-2).join("").toUpperCase()
+    : (user?.username ? user.username.slice(0, 2).toUpperCase() : "UV");
+
   return (
     <CandidateLayout active="/app/profile">
       <CandidateHeader
@@ -1447,40 +1496,100 @@ export function CandidateProfile() {
         desc="Quản lý thông tin và CV mặc định của bạn."
       />
       <section className="candidate-profile-page">
-        {(() => {
-          const initials = user?.name
-            ? user.name.split(' ').map((w: string) => w[0]).filter(Boolean).slice(-2).join('').toUpperCase()
-            : 'UV';
-          return (
-            <div className="candidate-profile-head">
-              <span>{initials}</span>
-              <div>
-                <h2>{user?.name || 'Ứng viên'}</h2>
-                <p>{user?.email || 'user@prephire.vn'}</p>
-                <small style={{ color: '#6b7280' }}>Tài khoản: <b>{user?.username || 'user1'}</b></small>
-              </div>
-            </div>
-          );
-        })()}
-        <div className="candidate-profile-form">
-          <label>
-            Họ và tên
-            <input defaultValue={user?.name} />
-          </label>
-          <label>
-            Số điện thoại
-            <input defaultValue="+84 912 345 678" />
-          </label>
-          <label>
-            Email
-            <input defaultValue={user?.email} />
-          </label>
-          <label>
-            Vị trí mong muốn
-            <input defaultValue="Senior Frontend Developer" />
-          </label>
+        <div className="candidate-profile-head">
+          <span>{initials}</span>
+          <div>
+            <h2>{name || user?.name || "Ứng viên"}</h2>
+            <p>{email || user?.email || "user@prephire.vn"}</p>
+            <small style={{ color: "#6b7280" }}>
+              Tài khoản: <b>{user?.username || "user"}</b>
+            </small>
+          </div>
         </div>
-        <button className="primary">Lưu thay đổi</button>
+
+        {successMsg && (
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            marginTop: "16px",
+            background: "#dcfce7",
+            border: "1px solid #bbf7d0",
+            color: "#15803d",
+            padding: "10px 14px",
+            borderRadius: "8px",
+            fontSize: "13px",
+            fontWeight: 600,
+          }}>
+            <Check size={16} />
+            <span>{successMsg}</span>
+          </div>
+        )}
+
+        {errorMsg && (
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            marginTop: "16px",
+            background: "#fee2e2",
+            border: "1px solid #fecaca",
+            color: "#b91c1c",
+            padding: "10px 14px",
+            borderRadius: "8px",
+            fontSize: "13px",
+            fontWeight: 600,
+          }}>
+            <X size={16} />
+            <span>{errorMsg}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit}>
+          <div className="candidate-profile-form">
+            <label>
+              Họ và tên
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Nhập họ và tên"
+                required
+              />
+            </label>
+            <label>
+              Số điện thoại
+              <input
+                type="text"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="+84 912 345 678"
+              />
+            </label>
+            <label>
+              Email
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="example@gmail.com"
+                required
+              />
+            </label>
+            <label>
+              Vị trí mong muốn
+              <input
+                type="text"
+                value={currentRole}
+                onChange={(e) => setCurrentRole(e.target.value)}
+                placeholder="Ví dụ: Senior Frontend Developer"
+              />
+            </label>
+          </div>
+          <button className="primary" type="submit" disabled={saving}>
+            {saving ? "Đang lưu…" : "Lưu thay đổi"}
+          </button>
+        </form>
       </section>
     </CandidateLayout>
   );

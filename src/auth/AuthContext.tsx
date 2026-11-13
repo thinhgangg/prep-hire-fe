@@ -1,4 +1,4 @@
-import { createContext, useContext, useState } from 'react'
+import { createContext, useContext, useEffect, useState } from 'react'
 import type { AuthUser, UserRole } from './types'
 
 const API_BASE = (
@@ -10,6 +10,14 @@ const API_BASE = (
 type AuthContextValue = {
   user: AuthUser | null
   login: (username: string, password: string) => Promise<AuthUser>
+  register: (email: string, password: string, name?: string, role?: UserRole) => Promise<AuthUser>
+  updateProfile: (data: {
+    name?: string
+    phone?: string
+    current_role?: string
+    location?: string
+    email?: string
+  }) => Promise<AuthUser>
   loginAs: (role: UserRole) => void
   logout: () => void
 }
@@ -44,7 +52,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const role = sessionStorage.getItem('interviewly-role') as UserRole | null
       if (role === 'ADMIN') return fallbackMockUser('admin')
       if (role === 'CANDIDATE') return fallbackMockUser('user1')
-    } catch {}
+    } catch { }
     return null
   })
 
@@ -90,6 +98,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           email: data.user.email,
           role: data.user.role as UserRole,
           token: data.access_token,
+          avatar: data.user.avatar,
+          phone: data.user.phone,
+          current_role: data.user.current_role,
+          location: data.user.location,
         }
         saveUser(authUser)
         return authUser
@@ -98,7 +110,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         try {
           const err = await res.json()
           if (err.detail) errorMsg = err.detail
-        } catch {}
+        } catch { }
         throw new Error(errorMsg)
       }
     } catch (netErr: any) {
@@ -115,6 +127,152 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  const register = async (
+    email: string,
+    password: string,
+    name?: string,
+    role: UserRole = 'CANDIDATE'
+  ): Promise<AuthUser> => {
+    const trimmedEmail = email.trim()
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: trimmedEmail,
+          password,
+          name: name?.trim() || undefined,
+          role,
+        }),
+      })
+
+      if (res.ok) {
+        const data = await res.json()
+        const authUser: AuthUser = {
+          id: data.user.id,
+          user_id_num: data.user.user_id_num,
+          username: data.user.username,
+          name: data.user.name,
+          email: data.user.email,
+          role: data.user.role as UserRole,
+          token: data.access_token,
+          avatar: data.user.avatar,
+          phone: data.user.phone,
+          current_role: data.user.current_role,
+          location: data.user.location,
+        }
+        saveUser(authUser)
+        return authUser
+      } else {
+        let errorMsg = 'Đăng ký không thành công'
+        try {
+          const err = await res.json()
+          if (err.detail) errorMsg = err.detail
+        } catch { }
+        throw new Error(errorMsg)
+      }
+    } catch (netErr: any) {
+      if (netErr?.message && !netErr.message.includes('fetch') && !netErr.message.includes('network')) {
+        throw netErr
+      }
+      throw new Error(netErr?.message || 'Không thể kết nối đến máy chủ xác thực')
+    }
+  }
+
+  useEffect(() => {
+    const token = sessionStorage.getItem('prephire-token')
+    if (token) {
+      fetch(`${API_BASE}/api/v1/auth/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data) {
+            setUser((prev) => {
+              const updated: AuthUser = {
+                id: data.id,
+                user_id_num: data.user_id_num,
+                username: data.username,
+                name: data.name,
+                email: data.email,
+                role: data.role as UserRole,
+                token: token,
+                avatar: data.avatar ?? prev?.avatar,
+                phone: data.phone ?? prev?.phone,
+                current_role: data.current_role ?? prev?.current_role,
+                location: data.location ?? prev?.location,
+              }
+              sessionStorage.setItem('prephire-user', JSON.stringify(updated))
+              return updated
+            })
+          }
+        })
+        .catch(() => { })
+    }
+  }, [])
+
+  const updateProfile = async (data: {
+    name?: string
+    phone?: string
+    current_role?: string
+    location?: string
+    email?: string
+  }): Promise<AuthUser> => {
+    const token = user?.token || sessionStorage.getItem('prephire-token')
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/auth/profile`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify(data),
+      })
+
+      if (res.ok) {
+        const updatedUser = await res.json()
+        const authUser: AuthUser = {
+          id: updatedUser.id,
+          user_id_num: updatedUser.user_id_num,
+          username: updatedUser.username,
+          name: updatedUser.name,
+          email: updatedUser.email,
+          role: updatedUser.role as UserRole,
+          token: token || undefined,
+          avatar: updatedUser.avatar,
+          phone: updatedUser.phone,
+          current_role: updatedUser.current_role,
+          location: updatedUser.location,
+        }
+        saveUser(authUser)
+        return authUser
+      } else {
+        let errDetail = 'Không thể cập nhật hồ sơ'
+        try {
+          const err = await res.json()
+          if (err.detail) errDetail = err.detail
+        } catch { }
+        throw new Error(errDetail)
+      }
+    } catch (err: any) {
+      if (user) {
+        const authUser: AuthUser = {
+          ...user,
+          ...data,
+          name: data.name ?? user.name,
+          email: data.email ?? user.email,
+          phone: data.phone ?? user.phone,
+          current_role: data.current_role ?? user.current_role,
+        }
+        saveUser(authUser)
+        return authUser
+      }
+      throw err
+    }
+  }
+
   const loginAs = (role: UserRole) => {
     const u = role === 'ADMIN' ? fallbackMockUser('admin') : fallbackMockUser('user1')
     saveUser(u)
@@ -125,7 +283,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, login, loginAs, logout }}>
+    <AuthContext.Provider value={{ user, login, register, updateProfile, loginAs, logout }}>
       {children}
     </AuthContext.Provider>
   )

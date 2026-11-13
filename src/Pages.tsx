@@ -1369,6 +1369,44 @@ function turnScore(turn:InterviewTurn){const values=Object.values(evidenceScores
 // Uses exact formulas from prep-hire-ai/app/services/interview_evidence_aggregation_service.py
 // =========================================================================
 
+const NON_ANSWER_PATTERNS = [
+  /^(?:dạ\s+|vâng\s+|à\s+|ừm\s+)?(?:tôi|em|mình)?\s*(?:không\s+biết|ko\s+biết|k\s+biết|chưa\s+biết|không\s+rõ|ko\s+rõ|k\s+rõ|chưa\s+rõ|chưa\s+học|chưa\s+tìm\s+hiểu|không\s+nắm\s+được|không\s+trả\s+lời\s+được|chưa\s+tiếp\s+cận|chưa\s+làm|chưa\s+từng\s+làm)(?:\s+(?:ạ|ạ\s*\.|nhiều|rõ|lắm|phần\s+này|câu\s+này|về\s+cái\s+này|về\s+phần\s+này))?[\.\s]*$/i,
+  /^(?:dạ\s+|vâng\s+)?(?:xin\s+phép\s+|cho\s+em\s+)?(?:bỏ\s+qua|bo\s+qua|cho\s+qua|qua\s+câu\s+này|bỏ\s+qua\s+câu\s+này)(?:\s+(?:ạ|câu\s+này|ạ\s*\.))?[\.\s]*$/i,
+  /^(?:dạ\s+)?(?:tôi|em)?\s*(?:chịu|chịu\s+thôi|chịu\s+ạ|không\s+có\s+câu\s+trả\s+lời)[\.\s]*$/i,
+  /^(?:pass|skip|idk|no\s+idea|no\s+answer|next)[\.\s!]*$/i,
+  /^[\.\s\?\-,\!_]+$/,
+]
+
+const REFUSAL_KEYWORDS = [
+  'không biết', 'ko biết', 'k biết', 'chưa biết',
+  'không rõ', 'ko rõ', 'k rõ', 'chưa rõ',
+  'chưa tìm hiểu', 'chưa học', 'chưa tiếp cận',
+  'chưa từng làm', 'chưa làm qua', 'chưa có kinh nghiệm',
+  'không trả lời được', 'chưa trả lời được', 'không nắm được',
+  'không có câu trả lời',
+  'bỏ qua', 'bo qua', 'xin phép bỏ qua', 'cho qua', 'cho em qua',
+  "i don't know", 'i do not know', 'no idea', 'pass', 'skip'
+]
+
+export function isNonAnswer(text: string | null | undefined): boolean {
+  if (!text) return true
+  const cleaned = text.trim().toLowerCase()
+  if (cleaned.length === 0) return true
+  if (cleaned.length < 3 || /^[\.\s\?\-,\!_]+$/.test(cleaned)) return true
+  for (const pat of NON_ANSWER_PATTERNS) {
+    if (pat.test(cleaned)) return true
+  }
+  const words = cleaned.split(/\s+/)
+  if (words.length <= 18) {
+    const hasRefusal = REFUSAL_KEYWORDS.some(k => cleaned.includes(k))
+    if (hasRefusal) {
+      const hasContrast = ['nhưng', 'tuy nhiên', 'song', 'theo em', 'em nghĩ', 'thực ra là', 'thực tế là'].some(c => cleaned.includes(c))
+      if (!hasContrast) return true
+    }
+  }
+  return false
+}
+
 export type CompetencyResult = {
   key: string
   label: string
@@ -1395,19 +1433,101 @@ export function computeAiEvaluation(
   session: InterviewSession | null,
   history: any[] = []
 ): OverallAiEvaluation {
-  // 1. Gather all answered turns from session or history
-  const sessionTurns = (session?.turns || []).filter(t => t.answer).map(t => ({
+  const totalExpected = session?.max_questions || Math.max(session?.turns?.length || 0, history.length || 0, 5)
+
+  // 1. Gather all turns from session or history
+  const sessionTurns = (session?.turns || []).map(t => ({
     turnIndex: t.turn_index,
     stage: t.stage,
     criterion: t.criterion,
     question: t.question,
-    answer: t.answer,
-    scores: t.answer_evidence?.scores || t.answer_evidence?.applicable_scores || {},
+    answer: t.answer || '',
+    scores: (t.answer_evidence?.scores || t.answer_evidence?.applicable_scores || {}) as Record<string, number>,
   }))
 
   const rawTurns = sessionTurns.length > 0 ? sessionTurns : history
-  const scoredTurns = rawTurns.filter(t => t.scores && Object.keys(t.scores).length > 0)
-  const answeredCount = rawTurns.length
+
+  // Count non-answers and valid answers
+  let validAnsweredCount = 0
+  let nonAnswerCount = 0
+  let unansweredCount = 0
+
+  const allProcessedTurns: {
+    turnIndex: number
+    scores: Record<string, number>
+    isNonAnswer: boolean
+  }[] = []
+
+  rawTurns.forEach((t, idx) => {
+    const ans = (t.answer || '').trim()
+    const isRefusal = isNonAnswer(ans)
+    if (!ans) {
+      unansweredCount++
+      allProcessedTurns.push({
+        turnIndex: t.turnIndex ?? idx,
+        scores: {
+          answer_relevance: 1.0,
+          technical_correctness: 1.0,
+          expected_signal_coverage: 1.0,
+          reasoning_quality: 1.0,
+          evidence_quality: 1.0,
+          clarity_conciseness: 1.0,
+          consistency: 1.0,
+        },
+        isNonAnswer: true,
+      })
+    } else if (isRefusal) {
+      nonAnswerCount++
+      allProcessedTurns.push({
+        turnIndex: t.turnIndex ?? idx,
+        scores: {
+          answer_relevance: 1.0,
+          technical_correctness: 1.0,
+          expected_signal_coverage: 1.0,
+          reasoning_quality: 1.0,
+          evidence_quality: 1.0,
+          clarity_conciseness: 1.0,
+          consistency: 1.0,
+        },
+        isNonAnswer: true,
+      })
+    } else {
+      validAnsweredCount++
+      const sc = t.scores && Object.keys(t.scores).length > 0 ? t.scores : {
+        answer_relevance: 3.8,
+        technical_correctness: 3.8,
+        expected_signal_coverage: 3.5,
+        reasoning_quality: 3.5,
+        evidence_quality: 3.5,
+        clarity_conciseness: 4.0,
+        consistency: 4.0,
+      }
+      allProcessedTurns.push({
+        turnIndex: t.turnIndex ?? idx,
+        scores: sc,
+        isNonAnswer: false,
+      })
+    }
+  })
+
+  // Add missing turns if session terminated before max_questions
+  const missingTurns = Math.max(0, totalExpected - allProcessedTurns.length)
+  unansweredCount += missingTurns
+  for (let m = 0; m < missingTurns; m++) {
+    allProcessedTurns.push({
+      turnIndex: allProcessedTurns.length + m,
+      scores: {
+        answer_relevance: 1.0,
+        technical_correctness: 1.0,
+        expected_signal_coverage: 1.0,
+        reasoning_quality: 1.0,
+        evidence_quality: 1.0,
+        clarity_conciseness: 1.0,
+        consistency: 1.0,
+      },
+      isNonAnswer: true,
+    })
+  }
 
   // Retrieve candidate & job context dynamically
   let candidateName = sessionStorage.getItem('selected_cv_name') || ''
@@ -1471,11 +1591,11 @@ export function computeAiEvaluation(
     role_relevance: 0.15,
   }
 
-  // Calculate average of each of the 7 Model-2 criteria across all turns
+  // Calculate average of each of the 7 criteria across ALL expected turns (penalizing non-answers with 1.0)
   const criterionSum: Record<string, number> = {}
   const criterionCount: Record<string, number> = {}
 
-  scoredTurns.forEach(t => {
+  allProcessedTurns.forEach(t => {
     Object.entries(t.scores).forEach(([k, v]) => {
       const val = Number(v)
       if (Number.isFinite(val) && val > 0) {
@@ -1485,71 +1605,61 @@ export function computeAiEvaluation(
     })
   })
 
-  const hasRealScores = Object.keys(criterionCount).length > 0
   const criterionAvg: Record<string, number> = {}
+  Object.keys(criterionSum).forEach(k => {
+    criterionAvg[k] = criterionSum[k] / Math.max(1, criterionCount[k])
+  })
 
-  if (hasRealScores) {
-    Object.keys(criterionSum).forEach(k => {
-      criterionAvg[k] = criterionSum[k] / criterionCount[k]
-    })
-  } else {
-    // Standard baseline for demo evaluation when opened directly
-    criterionAvg['technical_correctness'] = 4.2
-    criterionAvg['expected_signal_coverage'] = 4.0
-    criterionAvg['reasoning_quality'] = 4.1
-    criterionAvg['evidence_quality'] = 3.9
-    criterionAvg['clarity_conciseness'] = 4.3
-    criterionAvg['answer_relevance'] = 4.4
-    criterionAvg['consistency'] = 4.2
-  }
+  // If candidate gave 0 valid answers (all skipped or idk), all criterion averages will be 1.0
+  const hasValidAnswers = validAnsweredCount > 0
 
-  // Calculate the 5 Core Competencies (scale 1.0 - 5.0 -> percentage 0 - 100%)
+  // Calculate the 5 Core Competencies (scale 1.0 - 5.0 -> percentage 20 - 100%)
   const compValues: Record<string, number> = {}
   Object.entries(COMPETENCY_SIGNALS).forEach(([compKey, weights]) => {
     let wSum = 0
     let wTotal = 0
     Object.entries(weights).forEach(([signalKey, weight]) => {
-      const val = criterionAvg[signalKey] ?? 4.0
+      const val = criterionAvg[signalKey] ?? (hasValidAnswers ? 4.0 : 1.0)
       wSum += val * weight
       wTotal += weight
     })
-    compValues[compKey] = wTotal > 0 ? wSum / wTotal : 4.0
+    compValues[compKey] = wTotal > 0 ? wSum / wTotal : (hasValidAnswers ? 4.0 : 1.0)
   })
 
   const competencies: CompetencyResult[] = [
     {
       key: 'technical_knowledge',
       label: 'Kiến thức chuyên môn & Kỹ thuật',
-      score: Math.min(100, Math.round((compValues.technical_knowledge / 5.0) * 100)),
-      level: compValues.technical_knowledge >= 4.0 ? 'Thành thạo' : 'Đạt yêu cầu',
+      score: Math.min(100, Math.max(20, Math.round((compValues.technical_knowledge / 5.0) * 100))),
+      level: compValues.technical_knowledge >= 4.0 ? 'Thành thạo' : compValues.technical_knowledge >= 2.5 ? 'Đạt yêu cầu' : 'Chưa đạt',
       desc: 'Độ chính xác về khái niệm kỹ thuật và kiến trúc hệ thống.',
     },
     {
       key: 'problem_solving',
       label: 'Kỹ năng giải quyết vấn đề & Tư duy',
-      score: Math.min(100, Math.round((compValues.problem_solving / 5.0) * 100)),
-      level: compValues.problem_solving >= 4.0 ? 'Tư duy logic cao' : 'Khá',
+      score: Math.min(100, Math.max(20, Math.round((compValues.problem_solving / 5.0) * 100))),
+      level: compValues.problem_solving >= 4.0 ? 'Tư duy logic cao' : compValues.problem_solving >= 2.5 ? 'Khá' : 'Chưa đạt',
       desc: 'Chất lượng lập luận, phân tích trade-off và tối ưu giải pháp.',
     },
     {
       key: 'experience_evidence',
       label: 'Kinh nghiệm thực chiến & Dẫn chứng',
-      score: Math.min(100, Math.round((compValues.experience_evidence / 5.0) * 100)),
-      level: compValues.experience_evidence >= 4.0 ? 'Thực chứng mạnh mẽ' : 'Cơ bản',
+      score: Math.min(100, Math.max(20, Math.round((compValues.experience_evidence / 5.0) * 100))),
+      level: compValues.experience_evidence >= 4.0 ? 'Thực chứng mạnh mẽ' : compValues.experience_evidence >= 2.5 ? 'Cơ bản' : 'Thiếu dẫn chứng',
       desc: 'Dẫn chứng cụ thể từ các dự án thực tế và số liệu triển khai.',
     },
     {
       key: 'communication',
       label: 'Kỹ năng giao tiếp & Trình bày',
-      score: Math.min(100, Math.round((compValues.communication / 5.0) * 100)),
-      level: compValues.communication >= 4.0 ? 'Mạch lạc, súc tích' : 'Đạt yêu cầu',
+      score: Math.min(100, Math.max(20, Math.round((compValues.communication / 5.0) * 100))),
+      level: compValues.communication >= 4.0 ? 'Mạch lạc, súc tích' : compValues.communication >= 2.5 ? 'Đạt yêu cầu' : 'Cần cải thiện',
       desc: 'Cấu trúc câu trả lời rõ ràng, truyền đạt tự tin, có trọng tâm.',
     },
     {
       key: 'role_relevance',
       label: 'Độ phù hợp công việc & Nhất quán',
-      score: Math.min(100, Math.round((compValues.role_relevance / 5.0) * 100)),
-      level: compValues.role_relevance >= 4.0 ? 'Phù hợp cao với JD' : 'Phù hợp',
+      score: Math.min(100, Math.max(20, Math.round((compValues.role_relevance / 5.0) * 100))),
+      level: compValues.role_relevance >= 4.0 ? 'Phù hợp cao với JD' : compValues.role_relevance >= 2.5 ? 'Phù hợp' : 'Chưa phù hợp',
       desc: 'Mức độ bám sát yêu cầu công việc và tính trung thực so với CV.',
     },
   ]
@@ -1562,13 +1672,18 @@ export function computeAiEvaluation(
     overallSum += c.score * w
     overallWeight += w
   })
-  const overallScore = Math.round(overallSum / overallWeight)
+  const overallScore = hasValidAnswers ? Math.round(overallSum / overallWeight) : 20
 
   const levelText =
-    overallScore >= 80 ? 'Ứng viên phù hợp cao' : overallScore >= 65 ? 'Ứng viên tiềm năng' : 'Cần cải thiện thêm'
+    overallScore >= 80 ? 'Ứng viên phù hợp cao' : overallScore >= 65 ? 'Ứng viên tiềm năng' : overallScore >= 45 ? 'Cần cải thiện thêm' : 'Chưa đạt yêu cầu'
 
+  const totalPenalized = nonAnswerCount + unansweredCount
   const recommendation =
-    overallScore >= 75
+    !hasValidAnswers
+      ? 'Chưa đạt yêu cầu - Ứng viên không trả lời hoặc bỏ qua các câu hỏi trong phiên phỏng vấn.'
+      : totalPenalized > 0 && overallScore < 65
+      ? `Điểm tổng kết bị trừ đáng kể do có ${totalPenalized}/${totalExpected} câu hỏi không trả lời hoặc trả lời không biết.`
+      : overallScore >= 75
       ? 'Đạt tiêu chuẩn xuất sắc - Đề xuất tiến hành phỏng vấn trực tiếp với Tech Lead / Hiring Manager'
       : overallScore >= 60
       ? 'Đạt yêu cầu cơ bản - Cần đào sâu thêm về một số kỹ năng thực tế chuyên sâu'
@@ -1576,24 +1691,31 @@ export function computeAiEvaluation(
 
   const radarPoints = competencies.map(c => c.score)
 
-  const strengths = [
+  const strengths = hasValidAnswers ? [
     `Nắm vững kiến trúc và nền tảng kỹ thuật (${competencies[0].score}/100)`,
     `Khả năng phân tích trade-off và tư duy giải quyết vấn đề mạch lạc (${competencies[1].score}/100)`,
     `Trả lời tự tin, đúng trọng tâm và nhất quán với thông tin trong hồ sơ (${competencies[4].score}/100)`,
+  ] : [
+    'Chưa có dữ liệu điểm mạnh do ứng viên chưa hoàn thành câu trả lời nào.',
   ]
 
-  const improvements = [
+  const improvements: string[] = []
+  if (totalPenalized > 0) {
+    improvements.push(
+      `CẢNH BÁO: Điểm tổng kết đã bị trừ do có ${totalPenalized} câu hỏi chưa trả lời hoặc trả lời "không biết" / bỏ qua (Tỷ lệ hoàn thành: ${Math.round((validAnsweredCount / totalExpected) * 100)}%).`
+    )
+  }
+  improvements.push(
     'Bổ sung thêm các số liệu định lượng cụ thể (metrics, latency, throughput) trong các bài toán thực tế.',
-    'Mở rộng chia sẻ về cách xử lý các trường hợp ngoại lệ (edge cases) và giám sát hệ thống production.',
-  ]
+    'Mở rộng chia sẻ về cách xử lý các trường hợp ngoại lệ (edge cases) và giám sát hệ thống production.'
+  )
 
-  const displayCount = answeredCount > 0 ? answeredCount : (session?.max_questions || 5)
-  const confidence = hasRealScores ? Math.min(98, 85 + answeredCount * 2) : 92
+  const confidence = hasValidAnswers ? Math.min(98, Math.round(70 + (validAnsweredCount / totalExpected) * 25)) : 20
 
   return {
     candidateName,
     jobTitle,
-    answeredCount: displayCount,
+    answeredCount: validAnsweredCount,
     overallScore,
     confidence,
     levelText,

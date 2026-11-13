@@ -118,16 +118,28 @@ export function Login({
   onLogin: () => void;
   onCandidate?: () => void;
 }) {
-  const { login } = useAuth();
+  const { login, register } = useAuth();
+  const [isRegister, setIsRegister] = useState(false);
   const [showPass, setShowPass] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  // Login states
   const [email, setEmail] = useState("user1");
   const [password, setPassword] = useState("123456");
-  const [error, setError] = useState("");
 
-  const submit = async (e: React.FormEvent) => {
+  // Register states
+  const [regName, setRegName] = useState("");
+  const [regEmail, setRegEmail] = useState("");
+  const [regPassword, setRegPassword] = useState("");
+  const [regConfirmPassword, setRegConfirmPassword] = useState("");
+
+  const [error, setError] = useState("");
+  const [successMsg, setSuccessMsg] = useState("");
+
+  const submitLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setSuccessMsg("");
     setBusy(true);
     try {
       const authUser = await login(email, password);
@@ -145,142 +157,285 @@ export function Login({
       setBusy(false);
     }
   };
+
+  const submitRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setSuccessMsg("");
+
+    if (!regEmail.includes("@") || !regEmail.includes(".")) {
+      setError("Địa chỉ email không đúng định dạng.");
+      return;
+    }
+    if (regPassword.length < 6) {
+      setError("Mật khẩu phải có ít nhất 6 ký tự.");
+      return;
+    }
+    if (regPassword !== regConfirmPassword) {
+      setError("Mật khẩu xác nhận không trùng khớp.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const authUser = await register(regEmail, regPassword, regName, "CANDIDATE");
+      setSuccessMsg("Đăng ký thành công! Đang chuyển hướng...");
+      setTimeout(() => {
+        if (authUser.role === "CANDIDATE" && onCandidate) {
+          onCandidate();
+        } else {
+          onLogin();
+        }
+      }, 600);
+    } catch (err: any) {
+      setError(err?.message || "Đăng ký thất bại. Vui lòng kiểm tra lại thông tin.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <main className="login-page">
       <section className="login-panel">
         <div className="login-top">
           <Logo />
         </div>
-        <div className="login-box">
-          <div className="eyebrow">CHÀO MỪNG TRỞ LẠI</div>
-          <h1>
-            Đăng nhập vào
-            <br />
-            không gian tuyển dụng.
-          </h1>
-          <p className="lead">
-            Tiếp tục hành trình tìm kiếm những ứng viên phù hợp nhất cùng trợ lý
-            AI của bạn.
-          </p>
-          <button className="google-btn" onClick={onLogin}>
-            <span className="google-g">G</span> Tiếp tục với Google
-          </button>
-          <div className="divider">
-            <span>hoặc đăng nhập bằng email</span>
-          </div>
-          <form onSubmit={submit}>
-            <label>Tên đăng nhập</label>
-            <input
-              type="text"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="Nhập tên đăng nhập"
-              required
-            />
-            <div className="password-label">
-              <label>Mật khẩu</label>
-              <a href="#">Quên mật khẩu?</a>
-            </div>
-            <div className="pass-wrap">
+
+        {isRegister ? (
+          <div className="login-box">
+            <div className="eyebrow">THAM GIA NGAY</div>
+            <h1>
+              Đăng ký tài khoản
+              <br />
+              luyện phỏng vấn AI.
+            </h1>
+            <p className="lead">
+              Tạo tài khoản để bắt đầu trải nghiệm phỏng vấn trực tiếp, ghi âm câu trả lời và nhận đánh giá đa chiều từ AI.
+            </p>
+
+            <form onSubmit={submitRegister}>
+              <label>Họ và tên</label>
               <input
-                type={showPass ? "text" : "password"}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                type="text"
+                value={regName}
+                onChange={(e) => setRegName(e.target.value)}
+                placeholder="Ví dụ: Nguyễn Văn A"
                 required
               />
-              <button type="button" onClick={() => setShowPass(!showPass)}>
-                {showPass ? "Ẩn" : "Hiện"}
-              </button>
-            </div>
-            {error && <div className="login-error">{error}</div>}
-            <label className="remember">
-              <input type="checkbox" defaultChecked />{" "}
-              <span>Ghi nhớ đăng nhập</span>
-            </label>
-            <button className="primary full" disabled={busy}>
-              {busy ? (
-                "Đang đăng nhập…"
-              ) : (
-                <>
-                  Đăng nhập <ArrowRight size={17} />
-                </>
+
+              <label>Địa chỉ Email</label>
+              <input
+                type="email"
+                value={regEmail}
+                onChange={(e) => setRegEmail(e.target.value)}
+                placeholder="example@gmail.com"
+                required
+              />
+
+              <div className="password-label">
+                <label>Mật khẩu</label>
+                <small style={{ color: "#718078", fontSize: "11px" }}>Tối thiểu 6 ký tự</small>
+              </div>
+              <div className="pass-wrap">
+                <input
+                  type={showPass ? "text" : "password"}
+                  value={regPassword}
+                  onChange={(e) => setRegPassword(e.target.value)}
+                  placeholder="Nhập mật khẩu"
+                  required
+                />
+                <button type="button" onClick={() => setShowPass(!showPass)}>
+                  {showPass ? "Ẩn" : "Hiện"}
+                </button>
+              </div>
+
+              <label>Xác nhận mật khẩu</label>
+              <div className="pass-wrap">
+                <input
+                  type={showPass ? "text" : "password"}
+                  value={regConfirmPassword}
+                  onChange={(e) => setRegConfirmPassword(e.target.value)}
+                  placeholder="Nhập lại mật khẩu"
+                  required
+                />
+              </div>
+
+              {error && <div className="login-error">{error}</div>}
+              {successMsg && (
+                <div style={{ color: "#166534", background: "#dcfce7", border: "1px solid #bbf7d0", padding: "8px 12px", borderRadius: "8px", fontSize: "13px", marginBottom: "16px" }}>
+                  {successMsg}
+                </div>
               )}
-            </button>
-          </form>
-          <div className="demo-accounts">
-            <p>TÀI KHOẢN MẪU THỬ NGHIỆM (MẬT KHẨU: 123456)</p>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "12px" }}>
-              <button
-                type="button"
-                onClick={() => {
-                  setEmail("user1");
-                  setPassword("123456");
+
+              <button className="primary full" disabled={busy} type="submit">
+                {busy ? (
+                  "Đang xử lý…"
+                ) : (
+                  <>
+                    Tạo tài khoản <ArrowRight size={17} />
+                  </>
+                )}
+              </button>
+            </form>
+
+            <p className="signup">
+              Đã có tài khoản?{" "}
+              <a
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault();
+                  setIsRegister(false);
                   setError("");
+                  setSuccessMsg("");
                 }}
               >
-                <span className="demo-candidate">U1</span>
-                <span>
-                  <b>Ứng viên 1</b>
-                  <small>user1 · 123456</small>
-                </span>
-                <ArrowRight />
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setEmail("user2");
-                  setPassword("123456");
-                  setError("");
-                }}
-              >
-                <span className="demo-candidate">U2</span>
-                <span>
-                  <b>Ứng viên 2</b>
-                  <small>user2 · 123456</small>
-                </span>
-                <ArrowRight />
-              </button>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "12px" }}>
-              <button
-                type="button"
-                onClick={() => {
-                  setEmail("user3");
-                  setPassword("123456");
-                  setError("");
-                }}
-              >
-                <span className="demo-candidate">U3</span>
-                <span>
-                  <b>Ứng viên 3</b>
-                  <small>user3 · 123456</small>
-                </span>
-                <ArrowRight />
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setEmail("admin");
-                  setPassword("123456");
-                  setError("");
-                }}
-              >
-                <span className="demo-admin">AD</span>
-                <span>
-                  <b>Quản trị viên</b>
-                  <small>admin · 123456</small>
-                </span>
-                <ArrowRight />
-              </button>
-            </div>
-            <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "10px 12px", fontSize: "12px", color: "#64748b", lineHeight: 1.5 }}>
-              💡 Hệ thống hỗ trợ <b>100 tài khoản mẫu</b> từ <code>user1</code> đến <code>user100</code> (mật khẩu chung <code>123456</code>). Dữ liệu phỏng vấn sẽ được lưu gắn liền với từng tài khoản để thu thập đánh giá thực tế.
-            </div>
+                Đăng nhập ngay
+              </a>
+            </p>
           </div>
-          <p className="signup">
-            Chưa có tài khoản? <a href="#">Đăng ký miễn phí</a>
-          </p>
-        </div>
+        ) : (
+          <div className="login-box">
+            <div className="eyebrow">CHÀO MỪNG TRỞ LẠI</div>
+            <h1>
+              Đăng nhập vào
+              <br />
+              không gian tuyển dụng.
+            </h1>
+            <p className="lead">
+              Tiếp tục hành trình tìm kiếm những ứng viên phù hợp nhất cùng trợ lý
+              AI của bạn.
+            </p>
+            <button className="google-btn" onClick={onLogin}>
+              <span className="google-g">G</span> Tiếp tục với Google
+            </button>
+            <div className="divider">
+              <span>hoặc đăng nhập bằng email</span>
+            </div>
+            <form onSubmit={submitLogin}>
+              <label>Tên đăng nhập hoặc Email</label>
+              <input
+                type="text"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="Nhập tên đăng nhập hoặc email"
+                required
+              />
+              <div className="password-label">
+                <label>Mật khẩu</label>
+                <a href="#">Quên mật khẩu?</a>
+              </div>
+              <div className="pass-wrap">
+                <input
+                  type={showPass ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                />
+                <button type="button" onClick={() => setShowPass(!showPass)}>
+                  {showPass ? "Ẩn" : "Hiện"}
+                </button>
+              </div>
+              {error && <div className="login-error">{error}</div>}
+              <label className="remember">
+                <input type="checkbox" defaultChecked />{" "}
+                <span>Ghi nhớ đăng nhập</span>
+              </label>
+              <button className="primary full" disabled={busy}>
+                {busy ? (
+                  "Đang đăng nhập…"
+                ) : (
+                  <>
+                    Đăng nhập <ArrowRight size={17} />
+                  </>
+                )}
+              </button>
+            </form>
+            <div className="demo-accounts">
+              <p>TÀI KHOẢN MẪU THỬ NGHIỆM (MẬT KHẨU: 123456)</p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "12px" }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmail("user1");
+                    setPassword("123456");
+                    setError("");
+                  }}
+                >
+                  <span className="demo-candidate">U1</span>
+                  <span>
+                    <b>Ứng viên 1</b>
+                    <small>user1 · 123456</small>
+                  </span>
+                  <ArrowRight />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmail("user2");
+                    setPassword("123456");
+                    setError("");
+                  }}
+                >
+                  <span className="demo-candidate">U2</span>
+                  <span>
+                    <b>Ứng viên 2</b>
+                    <small>user2 · 123456</small>
+                  </span>
+                  <ArrowRight />
+                </button>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "12px" }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmail("user3");
+                    setPassword("123456");
+                    setError("");
+                  }}
+                >
+                  <span className="demo-candidate">U3</span>
+                  <span>
+                    <b>Ứng viên 3</b>
+                    <small>user3 · 123456</small>
+                  </span>
+                  <ArrowRight />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmail("admin");
+                    setPassword("123456");
+                    setError("");
+                  }}
+                >
+                  <span className="demo-admin">AD</span>
+                  <span>
+                    <b>Quản trị viên</b>
+                    <small>admin · 123456</small>
+                  </span>
+                  <ArrowRight />
+                </button>
+              </div>
+              <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "10px 12px", fontSize: "12px", color: "#64748b", lineHeight: 1.5 }}>
+                💡 Hệ thống hỗ trợ <b>100 tài khoản mẫu</b> từ <code>user1</code> đến <code>user100</code> (mật khẩu chung <code>123456</code>). Dữ liệu phỏng vấn sẽ được lưu gắn liền với từng tài khoản để thu thập đánh giá thực tế.
+              </div>
+            </div>
+            <p className="signup">
+              Chưa có tài khoản?{" "}
+              <a
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault();
+                  setIsRegister(true);
+                  setError("");
+                  setSuccessMsg("");
+                }}
+              >
+                Đăng ký miễn phí
+              </a>
+            </p>
+          </div>
+        )}
         <p className="copyright">
           © 2026 Interviewly · <a href="#">Quyền riêng tư</a> ·{" "}
           <a href="#">Điều khoản</a>
