@@ -1346,7 +1346,7 @@ export function CandidateResults() {
 
   // Dynamic candidate & job info
   const realJobTitle = cvAnalysis?.job_context?.title || currentEval.jobTitle || 'Senior Fullstack Engineer';
-  const realScore = currentEval.overallScore || 83;
+  const realScore = session ? currentEval.overallScore : 83;
 
   return (
     <CandidateLayout active="/app/results">
@@ -1357,7 +1357,7 @@ export function CandidateResults() {
       <div className="personal-summary">
         <div>
           <small>ĐIỂM GẦN NHẤT</small>
-          <b>{realScore}</b>
+          <b style={session && currentEval.overallScore === 0 ? { color: '#dc2626' } : {}}>{realScore}</b>
           <span>/100 điểm AI đánh giá</span>
         </div>
         <div>
@@ -1367,21 +1367,21 @@ export function CandidateResults() {
         </div>
         <div>
           <small>NĂNG LỰC NỔI BẬT</small>
-          <b>{currentEval.competencies[0]?.label.split('&')[0].trim() || 'Chuyên môn'}</b>
-          <span>{currentEval.competencies[0]?.score || 83}/100 điểm</span>
+          <b>{currentEval.overallScore > 0 ? (currentEval.competencies[0]?.label.split('&')[0].trim() || 'Chuyên môn') : 'Chưa có'}</b>
+          <span>{session ? currentEval.competencies[0]?.score : 83}/100 điểm</span>
         </div>
       </div>
 
       <section className="personal-results">
         {/* Latest completed interview session with real AI evaluated score */}
-        <div className="candidate-activity" style={{ borderLeft: '4px solid #10b981' }}>
-          <span className="candidate-job-icon" style={{ background: '#ecfdf5', color: '#059669' }}>AI</span>
+        <div className="candidate-activity" style={{ borderLeft: session && currentEval.overallScore === 0 ? '4px solid #ef4444' : '4px solid #10b981' }}>
+          <span className="candidate-job-icon" style={session && currentEval.overallScore === 0 ? { background: '#fef2f2', color: '#dc2626' } : { background: '#ecfdf5', color: '#059669' }}>AI</span>
           <p>
             <b>{realJobTitle}</b>
             <small>Phiên phỏng vấn AI • {new Date().toLocaleDateString('vi-VN')} • {currentEval.answeredCount} câu hỏi</small>
           </p>
           <div>
-            <strong style={{ color: '#059669' }}>
+            <strong style={{ color: session && currentEval.overallScore === 0 ? '#dc2626' : '#059669' }}>
               {realScore}<small>/100</small>
             </strong>
             <button className="primary" onClick={() => nav("/app/results/latest")}>
