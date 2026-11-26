@@ -75,10 +75,14 @@ export function VacanciesCard({
                       </div>
                       <div className="mt-0.5 flex items-center gap-1.5 text-[12px] text-zinc-500">
                         <span className="truncate">{item.company}</span>
-                        <span className="text-zinc-300">·</span>
-                        <span className="shrink-0 truncate max-w-[90px]">
-                          {item.meta.split("·")[0]?.trim()}
-                        </span>
+                        {item.meta?.split("·")[0]?.trim() && (
+                          <>
+                            <span className="text-zinc-300">·</span>
+                            <span className="shrink-0 truncate max-w-[110px]">
+                              {item.meta.split("·")[0]?.trim()}
+                            </span>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>

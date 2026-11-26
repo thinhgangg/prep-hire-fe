@@ -280,15 +280,15 @@ export function AdminTrafficHistogramCard({
               <div className="flex flex-wrap items-center gap-4">
                 <span className="inline-flex items-center gap-1.5">
                   <span className="h-2.5 w-2.5 rounded-[3px] bg-red-500" />
-                  0–40 (Thấp)
+                  &lt; 50 (Chưa phù hợp)
                 </span>
                 <span className="inline-flex items-center gap-1.5">
                   <span className="h-2.5 w-2.5 rounded-[3px] bg-amber-500" />
-                  40–60 (Trung bình)
+                  50–79 (Cần xem xét)
                 </span>
                 <span className="inline-flex items-center gap-1.5">
-                  <span className="h-2.5 w-2.5 rounded-[3px] bg-emerald-600" />
-                  60–100 (Tốt / Xuất sắc)
+                  <span className="h-2.5 w-2.5 rounded-[3px] bg-emerald-500" />
+                  ≥ 80 (Phù hợp cao)
                 </span>
               </div>
             )}

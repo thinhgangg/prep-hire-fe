@@ -66,7 +66,8 @@ export function Pagination({
         <b className="font-semibold text-zinc-950">
           {start}–{end}
         </b>{" "}
-        trong tổng số
+        trong tổng số{" "}
+        <b className="font-semibold text-zinc-950">{totalItems}</b> {itemLabel}
       </span>
 
       {totalPages > 1 && (

@@ -1,7 +1,10 @@
+import { getAuthHeaders, notifyUnauthorized } from "./authStorage";
+
 const AI_API_BASE = (
-  import.meta.env.VITE_AI_API_BASE_URL ||
   import.meta.env.VITE_API_BASE_URL ||
-  "http://localhost:8001"
+  import.meta.env.VITE_BE_URL ||
+  import.meta.env.VITE_AI_API_BASE_URL ||
+  "http://127.0.0.1:8000"
 ).replace(/\/$/, "");
 
 export type TurnEvidenceScores = {
@@ -40,9 +43,54 @@ export type InterviewTurn = InterviewQuestion & {
   } | null;
 };
 
+export type InterviewReview = {
+  review_id?: number | null;
+  session_id: string;
+  shortlisted: boolean;
+  decision: "pending" | "shortlisted" | "interview_next" | "hired" | "rejected";
+  hr_notes?: string | null;
+  reviewed_by_user_id?: number | null;
+  reviewed_by_email?: string | null;
+  updated_at?: string | null;
+};
+
+export type PersistedGazeEvent = {
+  timestamp: string;
+  direction: string;
+  duration: number;
+  behavior?: string | null;
+  penalty?: number | null;
+  snapshot?: string | null;
+  question_index?: number | null;
+  question_text?: string | null;
+};
+
+export type PersistedGazeReport = {
+  report_id?: number;
+  session_id: string;
+  total_frames: number;
+  face_frames: number;
+  duration_sec: number;
+  camera_active: boolean;
+  face_presence_pct: number | null;
+  gaze_center_pct: number | null;
+  gaze_left_pct: number | null;
+  gaze_right_pct: number | null;
+  gaze_away_pct: number | null;
+  gaze_events: PersistedGazeEvent[];
+  gaze_timeline: Record<string, unknown>[];
+  integrity_score?: number | null;
+  integrity_rank?: "HIGH" | "MEDIUM" | "LOW" | null;
+  integrity_summary?: any | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
 export type InterviewSession = {
   session_id: string;
   user_id?: number | null;
+  candidate_name?: string | null;
+  candidate_email?: string | null;
   status: string;
   language: string;
   max_questions: number;
@@ -50,6 +98,7 @@ export type InterviewSession = {
   current_stage: string;
   current_question: InterviewQuestion | null;
   turns: InterviewTurn[];
+  review?: InterviewReview | null;
   created_at?: string;
   updated_at?: string;
   completed_at?: string | null;
@@ -61,6 +110,13 @@ export function getSessionCandidateName(
   session?: InterviewSession | null,
 ): string {
   if (!session) return "Ứng viên";
+  if (
+    session.candidate_name &&
+    typeof session.candidate_name === "string" &&
+    session.candidate_name.trim()
+  ) {
+    return session.candidate_name.trim();
+  }
   const cv = session.cv_profile_json || {};
   if (cv.name && typeof cv.name === "string" && cv.name.trim()) {
     return cv.name.trim();
@@ -73,18 +129,42 @@ export function getSessionCandidateName(
     return cv.candidate_name.trim();
   }
   if (typeof session.user_id === "number" && session.user_id > 0) {
-    return `Ứng viên ${session.user_id}`;
+    return `Ứng viên #${session.user_id}`;
   }
-  return "Ứng viên";
+  return "Chưa gắn tài khoản";
+}
+
+export function getSessionCandidateEmail(
+  session?: InterviewSession | null,
+): string {
+  if (!session) return "";
+  if (
+    session.candidate_email &&
+    typeof session.candidate_email === "string" &&
+    session.candidate_email.trim()
+  ) {
+    return session.candidate_email.trim();
+  }
+  const cv = session.cv_profile_json || {};
+  if (cv.email && typeof cv.email === "string" && cv.email.trim()) {
+    return cv.email.trim();
+  }
+  return "";
 }
 
 export function getSessionJobTitle(session?: InterviewSession | null): string {
   if (!session) return "Vị trí phỏng vấn";
   const jp = session.job_profile_json || {};
   const cv = session.cv_profile_json || {};
-  if (jp.title && jp.title !== "Uploaded JD") return jp.title;
-  if (cv.target_role) return cv.target_role;
-  if (jp.title) return jp.title;
+  const rawTitle = typeof jp.title === "string" ? jp.title.trim() : "";
+  const isUploadedPlaceholder =
+    rawTitle.toLowerCase() === "uploaded jd" ||
+    rawTitle.toLowerCase() === "custom jd";
+  if (rawTitle && !isUploadedPlaceholder) return rawTitle;
+  if (typeof cv.target_role === "string" && cv.target_role.trim()) {
+    return cv.target_role.trim();
+  }
+  if (isUploadedPlaceholder) return "JD ứng viên tự tải lên";
   return "Vị trí phỏng vấn";
 }
 
@@ -166,20 +246,20 @@ export type CvAnalysis = {
 };
 
 async function parseResponse<T>(response: Response): Promise<T> {
+  if (response.status === 401) {
+    notifyUnauthorized();
+  }
   if (response.ok) return response.json() as Promise<T>;
   let message = `HTTP ${response.status}`;
   try {
     const body = await response.json();
     message = typeof body.detail === "string" ? body.detail : message;
   } catch {
-    // Keep the HTTP status when the server did not return JSON.
+    // Keep HTTP status if not JSON.
   }
   throw new Error(message);
 }
 
-// -------------------------------------------------------------
-// Các hàm từ HEAD (Hỗ trợ tải lên file CV & JD ngoài hệ thống)
-// -------------------------------------------------------------
 export async function createSessionWithUpload(params: {
   cvFile?: File | null;
   cvId?: number | null;
@@ -205,7 +285,9 @@ export async function createSessionWithUpload(params: {
   form.append("max_questions", String(params.maxQuestions || 5));
   form.append("allow_external_ai", "true");
   const effectiveUserId =
-    params.userId ?? sessionStorage.getItem("current_user_id");
+    params.userId ??
+    sessionStorage.getItem("current_user_id") ??
+    localStorage.getItem("current_user_id");
   if (effectiveUserId !== null && effectiveUserId !== undefined) {
     const cleanNum = String(effectiveUserId).replace(/\D/g, "");
     if (cleanNum) form.append("user_id", cleanNum);
@@ -213,28 +295,8 @@ export async function createSessionWithUpload(params: {
 
   const res = await fetch(`${AI_API_BASE}/api/v1/interview/sessions/upload`, {
     method: "POST",
+    headers: getAuthHeaders(),
     body: form,
-  });
-  const session = await parseResponse<InterviewSession>(res);
-  invalidateSessionsCache();
-  return session;
-}
-
-export async function createStoredSession(
-  jobId: number,
-  cvId: number = 52,
-  maxQuestions: number = 5,
-): Promise<InterviewSession> {
-  const res = await fetch(`${AI_API_BASE}/api/v1/interview/demo/sessions`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      job_id: jobId,
-      cv_id: cvId,
-      language: "vi",
-      max_questions: maxQuestions,
-      allow_external_ai: true,
-    }),
   });
   const session = await parseResponse<InterviewSession>(res);
   invalidateSessionsCache();
@@ -248,7 +310,7 @@ export async function createCustomSession(
 ): Promise<InterviewSession> {
   const res = await fetch(`${AI_API_BASE}/api/v1/interview/sessions`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getAuthHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({
       cv_text: cvText.length >= 30 ? cvText : cvText + " ".repeat(35),
       jd_text: jdText.length >= 30 ? jdText : jdText + " ".repeat(35),
@@ -267,15 +329,12 @@ export async function getEvidenceSummary(sessionId: string): Promise<any> {
     `${AI_API_BASE}/api/v1/interview/sessions/${sessionId}/evidence-summary`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getAuthHeaders({ "Content-Type": "application/json" }),
     },
   );
   return parseResponse<any>(res);
 }
 
-// -------------------------------------------------------------
-// Các hàm từ origin/An (Tạo session từ file/text, phân tích CV, nộp câu trả lời)
-// -------------------------------------------------------------
 export async function createInterviewSession(
   cvFile: File,
   jdText: string,
@@ -293,6 +352,7 @@ export async function createInterviewSession(
     `${AI_API_BASE}/api/v1/interview/sessions/files`,
     {
       method: "POST",
+      headers: getAuthHeaders(),
       body: form,
     },
   );
@@ -306,7 +366,7 @@ export async function createInterviewSessionFromText(
 ): Promise<InterviewSession> {
   const response = await fetch(`${AI_API_BASE}/api/v1/interview/sessions`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getAuthHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({
       cv_text: cvText,
       jd_text: jdText,
@@ -331,6 +391,7 @@ export async function analyzeCv(
 
   const response = await fetch(`${AI_API_BASE}/api/v1/cv/scan-upload`, {
     method: "POST",
+    headers: getAuthHeaders(),
     body: form,
   });
   return parseResponse<CvAnalysis>(response);
@@ -344,7 +405,7 @@ export async function submitInterviewAnswer(
     `${AI_API_BASE}/api/v1/interview/sessions/${sessionId}/answers`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         answer: answer || "Tôi chưa có câu trả lời cụ thể cho câu hỏi này.",
       }),
@@ -355,19 +416,117 @@ export async function submitInterviewAnswer(
   return session;
 }
 
-// -------------------------------------------------------------
-// Các hàm lưu trữ trạng thái phiên phỏng vấn & CV (SessionStorage + LocalStorage)
-// -------------------------------------------------------------
+export async function deleteInterviewSession(sessionId: string): Promise<void> {
+  const response = await fetch(
+    `${AI_API_BASE}/api/v1/interview/sessions/${sessionId}`,
+    {
+      method: "DELETE",
+      headers: getAuthHeaders(),
+    },
+  );
+  await parseResponse<{ status: string; session_id: string }>(response);
+  invalidateSessionsCache();
+  try {
+    sessionStorage.removeItem(`interview_session_${sessionId}`);
+    if (sessionStorage.getItem("current_session_id") === sessionId) {
+      sessionStorage.removeItem("current_session_id");
+      sessionStorage.removeItem(INTERVIEW_SESSION_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+// ============================================================================
+// Gaze Persistence & HR Review / Shortlist APIs
+// ============================================================================
+
+export async function saveSessionGazeReport(
+  sessionId: string,
+  payload: Omit<PersistedGazeReport, "report_id" | "session_id" | "created_at" | "updated_at">,
+): Promise<PersistedGazeReport> {
+  const res = await fetch(
+    `${AI_API_BASE}/api/v1/interview/sessions/${sessionId}/gaze`,
+    {
+      method: "PUT",
+      headers: getAuthHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(payload),
+    },
+  );
+  return parseResponse<PersistedGazeReport>(res);
+}
+
+export async function getSessionGazeReport(
+  sessionId: string,
+): Promise<PersistedGazeReport | null> {
+  if (!sessionId || sessionId === "latest") return null;
+  try {
+    const res = await fetch(
+      `${AI_API_BASE}/api/v1/interview/sessions/${sessionId}/gaze`,
+      { headers: getAuthHeaders() },
+    );
+    if (res.status === 401) {
+      notifyUnauthorized();
+      return null;
+    }
+    if (res.status === 404 || !res.ok) return null;
+    return (await res.json()) as PersistedGazeReport;
+  } catch {
+    return null;
+  }
+}
+
+export async function updateSessionReview(
+  sessionId: string,
+  payload: {
+    shortlisted?: boolean;
+    decision?: InterviewReview["decision"];
+    hr_notes?: string;
+  },
+): Promise<InterviewReview> {
+  const res = await fetch(
+    `${AI_API_BASE}/api/v1/interview/sessions/${sessionId}/review`,
+    {
+      method: "PUT",
+      headers: getAuthHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(payload),
+    },
+  );
+  const review = await parseResponse<InterviewReview>(res);
+  invalidateSessionsCache();
+  return review;
+}
+
+export async function getSessionReview(
+  sessionId: string,
+): Promise<InterviewReview | null> {
+  if (!sessionId || sessionId === "latest") return null;
+  try {
+    const res = await fetch(
+      `${AI_API_BASE}/api/v1/interview/sessions/${sessionId}/review`,
+      { headers: getAuthHeaders() },
+    );
+    if (res.status === 401) {
+      notifyUnauthorized();
+      return null;
+    }
+    if (!res.ok) return null;
+    return (await res.json()) as InterviewReview;
+  } catch {
+    return null;
+  }
+}
+
+// ============================================================================
+// Local Cache Helpers
+// ============================================================================
+
 export const INTERVIEW_SESSION_STORAGE_KEY = "pbl6-ai-interview-session";
 export const CV_ANALYSIS_STORAGE_KEY = "pbl6-cv-analysis";
 
 export function saveInterviewSession(session: InterviewSession): void {
   try {
     sessionStorage.setItem(
-      INTERVIEW_SESSION_STORAGE_KEY,
-      JSON.stringify(session),
-    );
-    localStorage.setItem(
       INTERVIEW_SESSION_STORAGE_KEY,
       JSON.stringify(session),
     );
@@ -390,8 +549,7 @@ export function loadInterviewSession(
     }
     const valSession = sessionStorage.getItem(INTERVIEW_SESSION_STORAGE_KEY);
     if (valSession) return JSON.parse(valSession) as InterviewSession;
-    const valLocal = localStorage.getItem(INTERVIEW_SESSION_STORAGE_KEY);
-    return valLocal ? (JSON.parse(valLocal) as InterviewSession) : null;
+    return null;
   } catch {
     return null;
   }
@@ -400,7 +558,6 @@ export function loadInterviewSession(
 export function saveCvAnalysis(analysis: CvAnalysis): void {
   try {
     sessionStorage.setItem(CV_ANALYSIS_STORAGE_KEY, JSON.stringify(analysis));
-    localStorage.setItem(CV_ANALYSIS_STORAGE_KEY, JSON.stringify(analysis));
   } catch {}
 }
 
@@ -457,7 +614,12 @@ export async function getInterviewSessionById(
   try {
     const res = await fetch(
       `${AI_API_BASE}/api/v1/interview/sessions/${sessionId}`,
+      { headers: getAuthHeaders() },
     );
+    if (res.status === 401) {
+      notifyUnauthorized();
+      return null;
+    }
     if (!res.ok) return null;
     const session = await parseResponse<InterviewSession>(res);
     if (session) {
@@ -487,7 +649,12 @@ export async function getUserSessions(
     try {
       const res = await fetch(
         `${AI_API_BASE}/api/v1/interview/users/${cleanId}/sessions`,
+        { headers: getAuthHeaders() },
       );
+      if (res.status === 401) {
+        notifyUnauthorized();
+        return [];
+      }
       if (!res.ok) return cached?.data || [];
       const data = await res.json();
       const list = Array.isArray(data) ? data : [];
@@ -525,7 +692,12 @@ export async function getAllSessions(
     try {
       const res = await fetch(
         `${AI_API_BASE}/api/v1/interview/sessions?limit=${limit}`,
+        { headers: getAuthHeaders() },
       );
+      if (res.status === 401) {
+        notifyUnauthorized();
+        return [];
+      }
       if (!res.ok) return cachedAllSessions || [];
       const data = await res.json();
       const list = Array.isArray(data) ? data : [];

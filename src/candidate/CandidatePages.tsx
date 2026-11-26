@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight,
   Award,
@@ -7,25 +7,29 @@ import {
   CheckCircle2,
   ChevronRight,
   ClipboardList,
+  Clock3,
   FileText,
   Gauge,
+  Loader2,
   MapPin,
   Plus,
   Search,
-  ShieldCheck,
-  SlidersHorizontal,
+  Trash2,
   Trophy,
   UploadCloud,
   Video,
   X,
 } from "lucide-react";
-import { AppLayout } from "@/components/layout/AppLayout";
-import { HelpCenterContent } from "@/components/layout/HelpCenterContent";
 import {
+  AppShell,
+  FilterToolbar,
+  JobCard,
   PageHeader,
+  ScoreBadge,
+  StatCard,
   getVietnameseDateEyebrow,
-} from "@/components/layout/PageHeader";
-import { KpiCard } from "@/components/dashboard/KpiCard";
+} from "@/components/shared";
+import { HelpCenterContent } from "@/components/layout/HelpCenterContent";
 import { UserScoreProgressCard } from "@/components/dashboard/UserScoreProgressCard";
 import { UserSkillRadarCard } from "@/components/dashboard/UserSkillRadarCard";
 import { RecentSessionsCard } from "@/components/dashboard/RecentSessionsCard";
@@ -34,7 +38,9 @@ import {
   buildSkillRadarData,
   buildUserScoreProgressData,
   evaluateSessions,
+  getScoreMeta,
 } from "@/utils/dashboardMetrics";
+import { deduplicateJobSkills } from "@/utils/scoreMeta";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -58,26 +64,22 @@ import {
   useSearchParams,
 } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import {
-  ReportContent,
-  SettingsFormContent,
-  computeAiEvaluation,
-} from "../Pages";
-import {
-  loadInterviewSession,
-  loadCvAnalysis,
-  getUserSessions,
-} from "../services/interviewApi";
+import { ReportContent } from "@/components/report/ReportContent";
+import { SettingsFormContent } from "@/components/settings/SettingsFormContent";
+import { computeAiEvaluation } from "@/utils/aiEvaluation";
 import {
   analyzeCv,
   createSessionWithUpload,
+  deleteInterviewSession,
+  getInterviewSessionById,
+  getUserSessions,
+  loadCvAnalysis,
+  loadInterviewSession,
   saveCvAnalysis,
   saveInterviewSession,
 } from "../services/interviewApi";
 import {
-  fetchDemoOptions,
   fetchRealJobs,
-  getCachedDemoCvs,
   getCachedRealJobs,
   DbJob,
 } from "../services/jobApi";
@@ -141,9 +143,9 @@ function CandidateLayout({
 }) {
   const nav = useNavigate();
   return (
-    <AppLayout role="user" activeKey={active} onNavigate={(path) => nav(path)}>
+    <AppShell role="user" activeKey={active} onNavigate={(path) => nav(path)}>
       {children}
-    </AppLayout>
+    </AppShell>
   );
 }
 
@@ -242,14 +244,21 @@ export function CandidateHome() {
     computeAiEvaluation(s),
   );
 
-  // Latest completed session for radar & score hero (fallback to latest session)
-  const latestCompleted = evaluated.find((x) => x.isCompleted) || evaluated[0];
+  // Latest completed session for KPI & radar (never use incomplete/unscored sessions)
+  const latestCompleted = evaluated.find((x) => x.isCompleted) || null;
   const latestEval = latestCompleted?.eval || null;
-  const latestScore = latestEval?.overallScore ?? 0;
+  const latestScore = latestEval ? latestEval.overallScore : null;
+  const latestScoreMeta =
+    latestScore !== null ? getScoreMeta(latestScore) : null;
 
   const progressMetrics = buildUserScoreProgressData(evaluated, 10);
-  const highestScore = progressMetrics.highestScore || latestScore;
+  const highestScore =
+    progressMetrics.completedCount > 0 ? progressMetrics.highestScore : null;
   const completedSessionsCount = progressMetrics.completedCount;
+  const incompleteSessionsCount = Math.max(
+    0,
+    allSessions.length - completedSessionsCount,
+  );
 
   const totalAnsweredTurns = evaluated.reduce(
     (sum, item) => sum + item.answeredTurns,
@@ -257,27 +266,25 @@ export function CandidateHome() {
   );
 
   const topCompetency =
-    latestEval?.competencies?.[0]?.label?.split("&")?.[0]?.trim() || "Chưa có";
+    latestEval?.competencies?.[0]?.label?.split("&")?.[0]?.trim() || "—";
 
   const radarSkills = buildSkillRadarData(latestEval?.competencies || []);
 
   const latestDateLabel = latestCompleted?.session.created_at
     ? `Phiên ngày ${new Date(latestCompleted.session.created_at).toLocaleDateString("vi-VN")}`
-    : "Chưa có phiên nào";
+    : "Chưa có phiên hoàn thành";
 
   const tableRows = evaluated.slice(0, 5).map((item, idx) => {
     const s = item.session;
-    const score = item.eval.overallScore ?? 0;
     const dateStr = s.created_at
       ? new Date(s.created_at).toLocaleDateString("vi-VN")
       : "Gần đây";
     return {
       id: s.session_id || String(idx),
       jobTitle: item.jobTitle,
-      subMeta: `Phiên #${s.session_id ? s.session_id.slice(0, 8) : idx + 1} · ${item.answeredTurns} câu trả lời`,
       dateLabel: dateStr,
       timestamp: item.timestamp,
-      score: score > 0 ? score : null,
+      score: item.isCompleted ? item.eval.overallScore : null,
       status: item.isCompleted
         ? ("completed" as const)
         : ("processing" as const),
@@ -290,7 +297,7 @@ export function CandidateHome() {
     id: j.id,
     title: j.title,
     company: j.company,
-    meta: `${j.location} · ${j.type}`,
+    meta: j.location || "",
     matchPercentage: j.match,
     actionLabel: "Phỏng vấn",
     onAction: () => {
@@ -328,27 +335,33 @@ export function CandidateHome() {
       <div className="space-y-5">
         {/* Row 1: 4 KPI Stat Cards */}
         <section className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
-          <KpiCard
+          <StatCard
             label="Công việc đang mở"
             value={totalJobsCount}
-            subtitle="Vị trí thực tế trong kho dữ liệu"
+            subtitle="Vị trí đang tuyển dụng"
             icon={BriefcaseBusiness}
             onClick={() => nav("/app/jobs")}
             actionTitle="Khám phá công việc"
           />
-          <KpiCard
-            label="Phỏng vấn đã làm"
-            value={String(allSessions.length).padStart(2, "0")}
-            subtitle={`${completedSessionsCount} hoàn thành · ${Math.max(0, allSessions.length - completedSessionsCount)} chưa xong`}
+          <StatCard
+            label="Phỏng vấn hoàn thành"
+            value={completedSessionsCount}
+            subtitle={
+              incompleteSessionsCount > 0
+                ? `${incompleteSessionsCount} phiên chưa hoàn thành`
+                : completedSessionsCount > 0
+                  ? `${totalAnsweredTurns} câu đã trả lời`
+                  : "Chưa có phiên nào"
+            }
             icon={Video}
             onClick={() => nav("/app/results")}
             actionTitle="Xem lịch sử phỏng vấn"
           />
-          <KpiCard
+          <StatCard
             label="Điểm cao nhất"
-            value={highestScore > 0 ? highestScore : "--"}
+            value={highestScore !== null ? highestScore : "—"}
             subtitle={
-              highestScore > 0
+              highestScore !== null
                 ? "Thành tích tốt nhất (/100)"
                 : "Hoàn thành phiên đầu tiên"
             }
@@ -356,33 +369,17 @@ export function CandidateHome() {
             onClick={() => nav("/app/results")}
             actionTitle="Xem kết quả chi tiết"
           />
-          <KpiCard
+          <StatCard
             label="Điểm gần nhất"
-            value={latestScore > 0 ? latestScore : "--"}
+            value={latestScore !== null ? latestScore : "—"}
             subtitle={latestDateLabel}
-            badgeText={
-              latestScore >= 80
-                ? "Xuất sắc"
-                : latestScore >= 60
-                  ? "Tiềm năng"
-                  : latestScore > 0
-                    ? "Cần cải thiện"
-                    : undefined
-            }
-            badgeTone={
-              latestScore >= 80
-                ? "success"
-                : latestScore >= 60
-                  ? "neutral"
-                  : latestScore > 0
-                    ? "warning"
-                    : "neutral"
-            }
+            badgeText={latestScoreMeta?.label}
+            badgeTone={latestScoreMeta?.badgeTone ?? "neutral"}
             icon={Gauge}
             onClick={() =>
               nav(
-                allSessions[0]?.session_id
-                  ? `/app/results/${allSessions[0].session_id}`
+                latestCompleted?.session.session_id
+                  ? `/app/results/${latestCompleted.session.session_id}`
                   : "/app/results",
               )
             }
@@ -409,7 +406,6 @@ export function CandidateHome() {
           <div className="lg:col-span-5">
             <UserSkillRadarCard
               title="Chỉ số năng lực"
-              overallScore={latestScore}
               skills={radarSkills}
               loading={loadingSessions}
             />
@@ -423,8 +419,8 @@ export function CandidateHome() {
               title="Hoạt động phỏng vấn gần đây"
               rows={tableRows}
               showCandidateColumn={false}
-              enableSort
-              searchPlaceholder="Tìm theo vị trí phỏng vấn..."
+              showSearch={false}
+              enableSort={false}
               onViewAll={() => nav("/app/results")}
               emptyMessage="Bạn chưa thực hiện phiên phỏng vấn nào."
               emptyAction={{
@@ -451,6 +447,8 @@ export function CandidateJobs() {
   const nav = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState("");
+  const [locationFilter, setLocationFilter] = useState("all");
+  const [levelFilter, setLevelFilter] = useState("all");
   const [jobs, setJobs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const currentPage = Math.max(
@@ -490,17 +488,17 @@ export function CandidateJobs() {
             if (lower.includes("system") || lower.includes("engineer"))
               detectedSkills.push("System Design", "Linux");
 
-            const cleanSkills =
-              j.skills && j.skills.length > 0
-                ? j.skills.filter((s) => s !== "Dữ liệu thực")
-                : [];
-
-            const finalSkills =
-              detectedSkills.length > 0
-                ? detectedSkills
-                : cleanSkills.length > 0
-                  ? cleanSkills
-                  : [];
+            const location = (j.location || "").trim();
+            const level = (j.level || "").trim();
+            const mergedRaw = [
+              ...detectedSkills,
+              ...(Array.isArray(j.skills) ? j.skills : []),
+            ];
+            const finalSkills = deduplicateJobSkills(
+              mergedRaw,
+              location,
+              level,
+            );
 
             const { matchPercentage } = calculateCvSkillMatch(
               finalSkills,
@@ -512,8 +510,8 @@ export function CandidateJobs() {
               id: j.id,
               title: j.title,
               company: j.company || "Doanh nghiệp Công nghệ",
-              location: j.location || "Việt Nam",
-              level: j.level || "",
+              location,
+              level,
               match: matchPercentage,
               skills: finalSkills,
             };
@@ -527,16 +525,57 @@ export function CandidateJobs() {
       });
   }, []);
 
-  const filteredJobs = jobs.filter(
-    (j) =>
-      j.title.toLowerCase().includes(query.toLowerCase()) ||
-      j.company.toLowerCase().includes(query.toLowerCase()) ||
-      j.location.toLowerCase().includes(query.toLowerCase()) ||
-      (j.skills &&
-        j.skills.some((s: string) =>
-          s.toLowerCase().includes(query.toLowerCase()),
-        )),
-  );
+  const locationOptions = useMemo(() => {
+    const unique = new Map<string, string>();
+    for (const j of jobs) {
+      if (!j.location) continue;
+      // Extract primary city if formatted as "Quận X, Hà Nội"
+      const parts = j.location.split(",").map((p: string) => p.trim()).filter(Boolean);
+      const city = parts.length > 1 ? parts[parts.length - 1] : parts[0];
+      if (!city) continue;
+      const key = city.toLowerCase();
+      if (!unique.has(key)) unique.set(key, city);
+    }
+    return Array.from(unique.values()).sort((a, b) => a.localeCompare(b, "vi"));
+  }, [jobs]);
+
+  const levelOptions = useMemo(() => {
+    const unique = new Map<string, string>();
+    for (const j of jobs) {
+      if (!j.level) continue;
+      const key = j.level.toLowerCase();
+      if (!unique.has(key)) unique.set(key, j.level.toUpperCase());
+    }
+    return Array.from(unique.values());
+  }, [jobs]);
+
+  const filteredJobs = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return jobs.filter((j) => {
+      if (
+        locationFilter !== "all" &&
+        !j.location.toLowerCase().includes(locationFilter.toLowerCase())
+      ) {
+        return false;
+      }
+      if (
+        levelFilter !== "all" &&
+        j.level.toLowerCase() !== levelFilter.toLowerCase()
+      ) {
+        return false;
+      }
+      if (!q) return true;
+      return (
+        j.title.toLowerCase().includes(q) ||
+        j.company.toLowerCase().includes(q) ||
+        j.location.toLowerCase().includes(q) ||
+        j.skills.some((s: string) => s.toLowerCase().includes(q))
+      );
+    });
+  }, [jobs, query, locationFilter, levelFilter]);
+
+  const hasActiveFilter =
+    Boolean(query.trim()) || locationFilter !== "all" || levelFilter !== "all";
 
   const totalPages = Math.max(1, Math.ceil(filteredJobs.length / pageSize));
   const safePage = Math.min(currentPage, totalPages);
@@ -549,11 +588,11 @@ export function CandidateJobs() {
     <CandidateLayout active="/app/jobs">
       <PageHeader
         title="Công việc"
-        description={`Chọn vị trí để bắt đầu luyện phỏng vấn`}
+        description="Chọn vị trí để bắt đầu luyện phỏng vấn."
       />
 
-      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative w-full max-w-md">
+      <div className="mb-5 flex flex-wrap items-center gap-2.5">
+        <div className="relative min-w-[240px] flex-1 max-w-md">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
           <Input
             value={query}
@@ -561,10 +600,77 @@ export function CandidateJobs() {
               setQuery(e.target.value);
               setCurrentPage(1);
             }}
-            placeholder="Tìm kiếm công việc, công ty hoặc địa điểm..."
+            placeholder="Tìm kiếm công việc, công ty hoặc kỹ năng..."
             className="h-10 rounded-full bg-white pl-9"
           />
         </div>
+
+        {locationOptions.length > 1 && (
+          <Select
+            value={locationFilter}
+            onValueChange={(val) => {
+              setLocationFilter(val);
+              setCurrentPage(1);
+            }}
+          >
+            <SelectTrigger
+              aria-label="Lọc theo địa điểm"
+              className="h-10 w-[180px] rounded-full bg-white text-[13px]"
+            >
+              <SelectValue placeholder="Tất cả địa điểm" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tất cả địa điểm</SelectItem>
+              {locationOptions.map((loc) => (
+                <SelectItem key={loc} value={loc}>
+                  {loc}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        {levelOptions.length > 0 && (
+          <Select
+            value={levelFilter}
+            onValueChange={(val) => {
+              setLevelFilter(val);
+              setCurrentPage(1);
+            }}
+          >
+            <SelectTrigger
+              aria-label="Lọc theo cấp bậc"
+              className="h-10 w-[160px] rounded-full bg-white text-[13px]"
+            >
+              <SelectValue placeholder="Tất cả cấp bậc" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tất cả cấp bậc</SelectItem>
+              {levelOptions.map((lvl) => (
+                <SelectItem key={lvl} value={lvl}>
+                  {lvl}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        {hasActiveFilter && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-10 rounded-full px-3 text-xs text-zinc-500 hover:text-zinc-950"
+            onClick={() => {
+              setQuery("");
+              setLocationFilter("all");
+              setLevelFilter("all");
+              setCurrentPage(1);
+            }}
+          >
+            <X className="h-3.5 w-3.5" /> Xóa bộ lọc
+          </Button>
+        )}
       </div>
 
       {loading ? (
@@ -573,79 +679,37 @@ export function CandidateJobs() {
         </Card>
       ) : paginatedJobs.length === 0 ? (
         <Card className="rounded-2xl border border-zinc-200 bg-white p-12 text-center text-sm text-zinc-500">
-          {query
-            ? `Không tìm thấy công việc nào phù hợp với từ khóa "${query}"`
+          {hasActiveFilter
+            ? "Không tìm thấy công việc phù hợp với bộ lọc hiện tại."
             : "Chưa có công việc nào trong hệ thống."}
         </Card>
       ) : (
         <>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {paginatedJobs.map((j) => {
-              const initials =
-                (j.company || j.title)
-                  .split(" ")
-                  .filter(Boolean)
-                  .slice(0, 2)
-                  .map((x: string) => x[0])
-                  .join("")
-                  .toUpperCase() || "JB";
-
-              return (
-                <Card
-                  key={j.id}
-                  className="flex flex-col justify-between rounded-2xl border border-zinc-200 bg-white p-5 transition-colors hover:border-zinc-300"
-                >
-                  <div>
-                    <div className="flex items-start gap-3">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-zinc-900 text-xs font-semibold text-white">
-                        {initials}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <h4 className="m-0 line-clamp-2 text-[14px] font-semibold leading-snug text-zinc-950">
-                          {j.title}
-                        </h4>
-                        <p className="m-0 mt-1 truncate text-xs text-zinc-500">
-                          {j.company}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="mt-3.5 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-                      <span className="inline-flex items-center gap-1">
-                        <MapPin className="h-3.5 w-3.5 text-zinc-400" />
-                        {j.location}
-                      </span>
-                      {j.level && (
-                        <Badge
-                          variant="outline"
-                          className="text-[11px] uppercase"
-                        >
-                          {j.level}
-                        </Badge>
-                      )}
-                    </div>
-
-                    {j.skills && j.skills.length > 0 && (
-                      <div className="mt-3 flex flex-wrap gap-1.5">
-                        {j.skills.slice(0, 4).map((s: string) => (
-                          <Badge
-                            key={s}
-                            variant="secondary"
-                            className="text-[11px] font-normal"
-                          >
-                            {s}
-                          </Badge>
-                        ))}
-                      </div>
+            {paginatedJobs.map((j) => (
+              <JobCard
+                key={j.id}
+                title={j.title}
+                company={j.company}
+                location={j.location}
+                level={j.level}
+                skills={j.skills}
+                footer={
+                  <>
+                    {j.match !== null ? (
+                      <Badge
+                        variant="success"
+                        className="whitespace-nowrap rounded-full text-[11px]"
+                      >
+                        Phù hợp {j.match}%
+                      </Badge>
+                    ) : (
+                      <span />
                     )}
-                  </div>
-
-                  <div className="mt-4 flex items-center justify-between border-t border-zinc-100 pt-3">
-                    <span className="text-xs text-zinc-400">ID #{j.id}</span>
                     <Button
                       size="sm"
                       variant="outline"
-                      className="h-8 rounded-full px-3 text-xs"
+                      className="h-8 rounded-full px-3.5 text-xs"
                       onClick={() => {
                         sessionStorage.setItem(
                           "candidate_selected_job_id",
@@ -656,10 +720,10 @@ export function CandidateJobs() {
                     >
                       Phỏng vấn <ArrowRight className="h-3.5 w-3.5" />
                     </Button>
-                  </div>
-                </Card>
-              );
-            })}
+                  </>
+                }
+              />
+            ))}
           </div>
 
           <Pagination
@@ -683,11 +747,6 @@ export function CandidateCreateInterview() {
   const nav = useNavigate();
   const { user } = useAuth();
   const [file, setFile] = useState<File | null>(null);
-  const [selectedCvId, setSelectedCvId] = useState<number | null>(null);
-  const [cvMode, setCvMode] = useState<"upload" | "stored">("upload");
-  const [availableCvs, setAvailableCvs] = useState<any[]>(() =>
-    getCachedDemoCvs(),
-  );
 
   const [selected, setSelected] = useState<number | null>(() => {
     const saved = sessionStorage.getItem("candidate_selected_job_id");
@@ -716,9 +775,8 @@ export function CandidateCreateInterview() {
   const jdInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    fetchDemoOptions().then(({ jobs, cvs }) => {
+    fetchRealJobs().then((jobs) => {
       setJobList(jobs);
-      setAvailableCvs(cvs);
       setLoading(false);
     });
   }, []);
@@ -753,8 +811,7 @@ export function CandidateCreateInterview() {
           }
         : null;
 
-  const hasCvSelected =
-    cvMode === "upload" ? file !== null : selectedCvId !== null;
+  const hasCvSelected = file !== null;
   const hasJobSelected = Boolean(effectiveJob);
 
   const drop = (e: React.DragEvent) => {
@@ -762,7 +819,6 @@ export function CandidateCreateInterview() {
     setDrag(false);
     if (e.dataTransfer.files[0]) {
       setFile(e.dataTransfer.files[0]);
-      setCvMode("upload");
     }
   };
 
@@ -793,7 +849,7 @@ export function CandidateCreateInterview() {
     sessionStorage.removeItem("interview_completed");
 
     try {
-      if (cvMode === "upload" && file) {
+      if (file) {
         const jdDesc =
           customJdText ||
           (effectiveJob.skills ? effectiveJob.skills.join(", ") : "") ||
@@ -804,8 +860,8 @@ export function CandidateCreateInterview() {
       }
 
       const session = await createSessionWithUpload({
-        cvFile: cvMode === "upload" ? file : null,
-        cvId: cvMode === "stored" ? selectedCvId : null,
+        cvFile: file,
+        cvId: null,
         jobId: jobMode === "system" ? selectedJob?.id : null,
         jdFile: jobMode === "upload" ? jdFile : null,
         jdText: jobMode === "upload" ? customJdText : null,
@@ -840,12 +896,8 @@ export function CandidateCreateInterview() {
         sessionStorage.removeItem("interview_turns_history");
         sessionStorage.setItem("selected_job_title", effectiveJob.title);
         sessionStorage.setItem("selected_job_company", effectiveJob.company);
-        if (cvMode === "upload" && file) {
+        if (file) {
           sessionStorage.setItem("selected_cv_name", file.name);
-        } else if (cvMode === "stored" && selectedCvId) {
-          const cvObj = availableCvs.find((c) => c.cv_id === selectedCvId);
-          if (cvObj)
-            sessionStorage.setItem("selected_cv_name", cvObj.file_name);
         }
       }
       setStarted(true);
@@ -935,7 +987,7 @@ export function CandidateCreateInterview() {
             {
               step: 1,
               title: "Hồ sơ ứng viên",
-              subtitle: "Tải lên hoặc chọn CV",
+              subtitle: "Tải lên CV của bạn",
               done: hasCvSelected,
               active: !hasCvSelected,
             },
@@ -948,9 +1000,9 @@ export function CandidateCreateInterview() {
             },
             {
               step: 3,
-              title: "Xác nhận",
-              subtitle: "Sẵn sàng bắt đầu",
-              done: false,
+              title: "Cấu hình phiên",
+              subtitle: "Số lượng câu hỏi",
+              done: hasCvSelected && hasJobSelected,
               active: hasCvSelected && hasJobSelected,
             },
           ].map((item) => (
@@ -991,8 +1043,8 @@ export function CandidateCreateInterview() {
                     Hồ sơ ứng viên
                   </h2>
                   <p className="m-0 mt-0.5 text-xs text-zinc-500">
-                    Tải file CV của bạn hoặc chọn từ danh sách CV có sẵn trong
-                    hệ thống.
+                    Tải lên tệp CV của bạn (PDF, DOCX, TXT) để hệ thống phân tích
+                    và đặt câu hỏi phù hợp.
                   </p>
                 </div>
               </div>
@@ -1003,113 +1055,71 @@ export function CandidateCreateInterview() {
               )}
             </div>
 
-            <Tabs
-              value={cvMode}
-              onValueChange={(v) => setCvMode(v as "upload" | "stored")}
-              className="mb-4"
-            >
-              <TabsList>
-                <TabsTrigger value="upload">
-                  Tải file CV từ máy tính
-                </TabsTrigger>
-                <TabsTrigger value="stored">
-                  Chọn CV mẫu có sẵn ({availableCvs.length})
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
-
-            {cvMode === "upload" ? (
-              !file ? (
-                <div
-                  className={
-                    drag
-                      ? "flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-emerald-500 bg-emerald-50/40 px-6 py-10 text-center transition-colors"
-                      : "flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-zinc-200 bg-zinc-50/60 px-6 py-10 text-center transition-colors hover:border-zinc-300 hover:bg-zinc-50"
-                  }
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    setDrag(true);
+            {!file ? (
+              <div
+                className={
+                  drag
+                    ? "flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-emerald-500 bg-emerald-50/40 px-6 py-10 text-center transition-colors"
+                    : "flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-zinc-200 bg-zinc-50/60 px-6 py-10 text-center transition-colors hover:border-zinc-300 hover:bg-zinc-50"
+                }
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDrag(true);
+                }}
+                onDragLeave={() => setDrag(false)}
+                onDrop={drop}
+                onClick={() => input.current?.click()}
+              >
+                <input
+                  ref={input}
+                  type="file"
+                  accept=".pdf,.doc,.docx,.txt"
+                  className="hidden"
+                  onChange={(e) => {
+                    setFile(e.target.files?.[0] || null);
                   }}
-                  onDragLeave={() => setDrag(false)}
-                  onDrop={drop}
-                  onClick={() => input.current?.click()}
-                >
-                  <input
-                    ref={input}
-                    type="file"
-                    accept=".pdf,.doc,.docx,.txt"
-                    className="hidden"
-                    onChange={(e) => {
-                      setFile(e.target.files?.[0] || null);
-                      setCvMode("upload");
-                    }}
-                  />
-                  <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-700">
-                    <UploadCloud className="h-5 w-5" />
-                  </div>
-                  <h3 className="m-0 text-sm font-semibold text-zinc-950">
-                    Kéo & thả CV của bạn vào đây
-                  </h3>
-                  <p className="m-0 mt-1 text-xs text-zinc-500">
-                    hoặc{" "}
-                    <span className="font-semibold text-emerald-600">
-                      chọn tệp từ máy tính
-                    </span>
-                  </p>
-                  <small className="mt-2 text-[11px] text-zinc-400">
-                    Hỗ trợ PDF, DOCX, TXT · Tối đa 10MB
-                  </small>
+                />
+                <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-700">
+                  <UploadCloud className="h-5 w-5" />
                 </div>
-              ) : (
-                <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50/40 p-3.5">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-600 text-white">
-                    <FileText className="h-5 w-5" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-semibold text-zinc-950">
-                      {file.name}
-                    </div>
-                    <div className="text-xs text-zinc-500">
-                      {(file.size / 1024 / 1024).toFixed(2)} MB · Sẵn sàng để AI
-                      đọc & sinh câu hỏi riêng
-                    </div>
-                  </div>
-                  <Badge variant="success" className="rounded-full">
-                    <Check className="h-3 w-3" /> Sẵn sàng
-                  </Badge>
-                  <button
-                    type="button"
-                    onClick={() => setFile(null)}
-                    aria-label="Xóa tệp CV"
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg border-0 bg-transparent text-zinc-400 hover:bg-zinc-200/70 hover:text-zinc-900 cursor-pointer"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              )
+                <h3 className="m-0 text-sm font-semibold text-zinc-950">
+                  Kéo & thả CV của bạn vào đây
+                </h3>
+                <p className="m-0 mt-1 text-xs text-zinc-500">
+                  hoặc{" "}
+                  <span className="font-semibold text-emerald-600">
+                    chọn tệp từ máy tính
+                  </span>
+                </p>
+                <small className="mt-2 text-[11px] text-zinc-400">
+                  Hỗ trợ PDF, DOCX, TXT · Tối đa 10MB
+                </small>
+              </div>
             ) : (
-              <div className="space-y-1.5">
-                <Label htmlFor="stored-cv-select">Chọn hồ sơ CV lưu sẵn</Label>
-                <Select
-                  value={selectedCvId ? String(selectedCvId) : ""}
-                  onValueChange={(val) =>
-                    setSelectedCvId(val ? parseInt(val, 10) : null)
-                  }
+              <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50/40 p-3.5">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-600 text-white">
+                  <FileText className="h-5 w-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-semibold text-zinc-950">
+                    {file.name}
+                  </div>
+                  <div className="text-xs text-zinc-500">
+                    {(file.size / 1024 / 1024).toFixed(2)} MB · Sẵn sàng để AI
+                    đọc & sinh câu hỏi riêng
+                  </div>
+                </div>
+                <Badge variant="success" className="rounded-full">
+                  <Check className="h-3 w-3" /> Sẵn sàng
+                </Badge>
+                <button
+                  type="button"
+                  onClick={() => setFile(null)}
+                  aria-label="Xóa tệp CV"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border-0 bg-transparent text-zinc-400 hover:bg-zinc-200/70 hover:text-zinc-900 cursor-pointer"
                 >
-                  <SelectTrigger
-                    id="stored-cv-select"
-                    className="h-10 rounded-lg text-sm"
-                  >
-                    <SelectValue placeholder="-- Chọn một CV từ kho dữ liệu --" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableCvs.map((c) => (
-                      <SelectItem key={c.cv_id} value={String(c.cv_id)}>
-                        {c.file_name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  <X className="h-4 w-4" />
+                </button>
               </div>
             )}
           </Card>
@@ -1145,11 +1155,9 @@ export function CandidateCreateInterview() {
             >
               <TabsList>
                 <TabsTrigger value="system" className="gap-1.5">
-                  <BriefcaseBusiness className="h-3.5 w-3.5" />
-                  Chọn từ kho dữ liệu ({jobList.length})
+                  Chọn từ kho dữ liệu
                 </TabsTrigger>
                 <TabsTrigger value="upload" className="gap-1.5">
-                  <UploadCloud className="h-3.5 w-3.5" />
                   Tải lên / Nhập Job ngoài
                 </TabsTrigger>
               </TabsList>
@@ -1351,7 +1359,7 @@ export function CandidateCreateInterview() {
             )}
           </Card>
 
-          {/* Section 03: Số lượng câu hỏi phỏng vấn */}
+          {/* Section 03: Cấu hình phiên */}
           <Card className="rounded-2xl border border-zinc-200 bg-white p-6">
             <div className="mb-4 flex items-start gap-3">
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-900 text-xs font-semibold text-white">
@@ -1359,11 +1367,10 @@ export function CandidateCreateInterview() {
               </span>
               <div>
                 <h2 className="m-0 text-base font-semibold text-zinc-950">
-                  Số lượng câu hỏi phỏng vấn
+                  Cấu hình phiên
                 </h2>
                 <p className="m-0 mt-0.5 text-xs text-zinc-500">
-                  Chọn số lượng câu hỏi để AI sinh và điều phối toàn bộ buổi
-                  phỏng vấn.
+                  Chọn số lượng câu hỏi cho buổi phỏng vấn.
                 </p>
               </div>
             </div>
@@ -1443,9 +1450,9 @@ export function CandidateCreateInterview() {
             </h3>
 
             <div className="mt-5 space-y-4 divide-y divide-zinc-100">
-              <div>
+              <div className={file ? "" : "opacity-65"}>
                 <div className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
-                  Hồ sơ (CV)
+                  01 · Hồ sơ (CV)
                 </div>
                 {file ? (
                   <div className="mt-2 flex items-center gap-2.5">
@@ -1456,36 +1463,21 @@ export function CandidateCreateInterview() {
                       <div className="truncate text-sm font-semibold text-zinc-950">
                         {file.name}
                       </div>
-                      <div className="text-xs text-zinc-500">Tệp tải lên</div>
-                    </div>
-                  </div>
-                ) : selectedCvId ? (
-                  <div className="mt-2 flex items-center gap-2.5">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
-                      <FileText className="h-4 w-4" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-zinc-950">
-                        {
-                          availableCvs.find((c) => c.cv_id === selectedCvId)
-                            ?.file_name
-                        }
-                      </div>
                       <div className="text-xs text-zinc-500">
-                        CV từ hệ thống
+                        {(file.size / 1024 / 1024).toFixed(2)} MB
                       </div>
                     </div>
                   </div>
                 ) : (
-                  <p className="m-0 mt-1.5 text-xs text-zinc-400">
-                    Chưa chọn CV
-                  </p>
+                  <div className="mt-2 rounded-xl border border-dashed border-zinc-200 bg-zinc-50/70 px-3 py-2.5 text-xs text-zinc-500">
+                    Chờ tải lên tệp CV
+                  </div>
                 )}
               </div>
 
-              <div className="pt-4">
+              <div className={`pt-4 ${effectiveJob ? "" : "opacity-65"}`}>
                 <div className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
-                  Vị trí ứng tuyển
+                  02 · Vị trí ứng tuyển
                 </div>
                 {effectiveJob ? (
                   <div className="mt-2 flex items-center gap-2.5">
@@ -1503,29 +1495,18 @@ export function CandidateCreateInterview() {
                     </div>
                   </div>
                 ) : (
-                  <p className="m-0 mt-1.5 text-xs text-zinc-400">
-                    Chưa chọn công việc
-                  </p>
+                  <div className="mt-2 rounded-xl border border-dashed border-zinc-200 bg-zinc-50/70 px-3 py-2.5 text-xs text-zinc-500">
+                    Chờ chọn vị trí ứng tuyển
+                  </div>
                 )}
               </div>
 
               <div className="pt-4">
                 <div className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
-                  Cấu trúc phiên
+                  03 · Cấu hình phiên
                 </div>
                 <div className="mt-1.5 text-sm font-semibold text-zinc-950">
-                  {numQuestions} câu hỏi phỏng vấn thích ứng
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-5 flex items-start gap-2.5 rounded-xl border border-zinc-200/80 bg-zinc-50 p-3.5">
-              <SlidersHorizontal className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
-              <div className="text-xs leading-relaxed text-zinc-600">
-                <b className="text-zinc-900">Hệ thống sẽ chuẩn bị gì?</b>
-                <div className="mt-0.5">
-                  Đọc trực tiếp CV và yêu cầu vị trí bạn chọn để xây dựng bộ câu
-                  hỏi phỏng vấn phù hợp.
+                  {numQuestions} câu hỏi phỏng vấn
                 </div>
               </div>
             </div>
@@ -1544,15 +1525,10 @@ export function CandidateCreateInterview() {
               onClick={handleStart}
             >
               {creatingSession
-                ? "AI đang đọc CV & tuyển chọn câu hỏi..."
-                : "Tiếp tục với AI"}
+                ? "Đang chuẩn bị bộ câu hỏi..."
+                : "Bắt đầu phỏng vấn"}
               {!creatingSession && <ArrowRight className="h-4 w-4" />}
             </Button>
-
-            <div className="mt-3 flex items-center justify-center gap-1.5 text-[11px] text-zinc-400">
-              <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
-              <span>Dữ liệu được mã hóa và bảo mật</span>
-            </div>
           </Card>
         </aside>
       </div>
@@ -1560,12 +1536,14 @@ export function CandidateCreateInterview() {
   );
 }
 
+type ResultStatusFilter = "all" | "completed" | "incomplete";
+type ResultSortOption = "newest" | "score_desc" | "score_asc";
+
 export function CandidateResults() {
   const nav = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
-  const session = loadInterviewSession();
-  const cvAnalysis = loadCvAnalysis();
+  const localSession = loadInterviewSession();
 
   const uid =
     user?.user_id_num ||
@@ -1574,7 +1552,6 @@ export function CandidateResults() {
     "1";
   const cacheKey = `user_db_sessions_${uid}`;
 
-  // Initialize from cache if present to avoid any visual delay or 1-to-many jumping
   const [userDbSessions, setUserDbSessions] = useState<any[]>(() => {
     try {
       const cached = localStorage.getItem(cacheKey);
@@ -1597,6 +1574,13 @@ export function CandidateResults() {
     return true;
   });
 
+  const [statusFilter, setStatusFilter] = useState<ResultStatusFilter>("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortBy, setSortBy] = useState<ResultSortOption>("newest");
+  const [resumingId, setResumingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState("");
+
   const currentPage = Math.max(
     1,
     parseInt(searchParams.get("page") || "1", 10) || 1,
@@ -1607,7 +1591,7 @@ export function CandidateResults() {
     else next.set("page", String(page));
     setSearchParams(next, { replace: false });
   };
-  const pageSize = 5;
+  const pageSize = 8;
 
   useEffect(() => {
     const cleanUid =
@@ -1617,7 +1601,7 @@ export function CandidateResults() {
       1;
     getUserSessions(cleanUid)
       .then((res) => {
-        if (Array.isArray(res) && res.length > 0) {
+        if (Array.isArray(res)) {
           setUserDbSessions(res);
           try {
             localStorage.setItem(
@@ -1633,30 +1617,167 @@ export function CandidateResults() {
       });
   }, [user]);
 
-  // Compute evaluation stats dynamically from actual sessions
-  const latestSession =
-    userDbSessions && userDbSessions.length > 0 ? userDbSessions[0] : session;
-  const currentEval = computeAiEvaluation(latestSession);
-  const hasRealSession =
-    session && session.turns && session.turns.some((t) => t.answer);
+  const allSessions = useMemo(() => {
+    if (userDbSessions.length > 0) return userDbSessions;
+    if (localSession && localSession.turns?.some((t) => t.answer)) {
+      return [localSession];
+    }
+    return [];
+  }, [userDbSessions, localSession]);
 
-  const realScore = currentEval?.overallScore ?? 0;
-  const completedCount =
-    userDbSessions.length > 0
-      ? String(userDbSessions.length).padStart(2, "0")
-      : hasRealSession
-        ? "01"
-        : "00";
-  const topCompetency =
-    currentEval?.competencies?.[0]?.label?.split("&")?.[0]?.trim() || "Chưa có";
-  const topScore = currentEval?.competencies?.[0]?.score || realScore || 0;
+  const evaluated = useMemo(
+    () =>
+      evaluateSessions(allSessions, (s) => computeAiEvaluation(s)).sort(
+        (a, b) => b.timestamp - a.timestamp,
+      ),
+    [allSessions],
+  );
 
-  const totalPages = Math.max(1, Math.ceil(userDbSessions.length / pageSize));
+  // Synchronized metrics: count ONLY completed sessions (matches /app exactly)
+  const completedItems = useMemo(
+    () => evaluated.filter((item) => item.isCompleted),
+    [evaluated],
+  );
+  const incompleteCount = evaluated.length - completedItems.length;
+  const latestCompleted = completedItems[0] || null;
+  const latestScore = latestCompleted ? latestCompleted.eval.overallScore : null;
+  const latestTier = latestScore !== null ? getScoreMeta(latestScore) : null;
+  const latestDateSubtitle = latestCompleted?.session.created_at
+    ? `Phiên ngày ${new Date(latestCompleted.session.created_at).toLocaleDateString("vi-VN")}`
+    : undefined;
+
+  const topComp = latestCompleted?.eval.competencies?.[0] || null;
+  const topCompetency = topComp?.label?.split("&")?.[0]?.trim() || null;
+  const topScore = topComp ? Math.round(topComp.score) : null;
+  const topTier = topScore !== null ? getScoreMeta(topScore) : null;
+
+  // Filter & sort list
+  const filteredItems = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const filtered = evaluated.filter((item) => {
+      if (statusFilter === "completed" && !item.isCompleted) return false;
+      if (statusFilter === "incomplete" && item.isCompleted) return false;
+      if (q && !item.jobTitle.toLowerCase().includes(q)) return false;
+      return true;
+    });
+
+    return [...filtered].sort((a, b) => {
+      if (sortBy === "score_desc") {
+        const av = a.isCompleted ? a.eval.overallScore : -1;
+        const bv = b.isCompleted ? b.eval.overallScore : -1;
+        return bv - av || b.timestamp - a.timestamp;
+      }
+      if (sortBy === "score_asc") {
+        const av = a.isCompleted ? a.eval.overallScore : Number.POSITIVE_INFINITY;
+        const bv = b.isCompleted ? b.eval.overallScore : Number.POSITIVE_INFINITY;
+        return av - bv || b.timestamp - a.timestamp;
+      }
+      return b.timestamp - a.timestamp;
+    });
+  }, [evaluated, statusFilter, searchQuery, sortBy]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / pageSize));
   const safePage = Math.min(currentPage, totalPages);
-  const paginatedSessions = userDbSessions.slice(
+  const paginatedItems = filteredItems.slice(
     (safePage - 1) * pageSize,
     safePage * pageSize,
   );
+
+  const handleResumeSession = async (sessionId: string) => {
+    setActionError("");
+    setResumingId(sessionId);
+    try {
+      const fullSession = await getInterviewSessionById(sessionId);
+      if (!fullSession) {
+        nav(`/app/results/${sessionId}`);
+        return;
+      }
+      const nextQuestion =
+        fullSession.current_question ||
+        (() => {
+          const unanswered = fullSession.turns?.find((t) => !t.answer);
+          return unanswered
+            ? {
+                turn_index: unanswered.turn_index,
+                stage: unanswered.stage,
+                question: unanswered.question,
+              }
+            : null;
+        })();
+
+      if (!nextQuestion || fullSession.status === "completed") {
+        nav(`/app/results/${sessionId}`);
+        return;
+      }
+
+      saveInterviewSession({
+        ...fullSession,
+        current_question: nextQuestion,
+      });
+      sessionStorage.setItem("current_session_id", fullSession.session_id);
+      sessionStorage.setItem("current_question_text", nextQuestion.question);
+      sessionStorage.setItem(
+        "current_question_criterion",
+        (nextQuestion as any).criterion || "Chuyên môn",
+      );
+      sessionStorage.setItem(
+        "current_question_stage",
+        nextQuestion.stage || fullSession.current_stage || "Chuyên môn",
+      );
+      sessionStorage.setItem(
+        "current_turn_index",
+        String(nextQuestion.turn_index ?? 0),
+      );
+      sessionStorage.setItem(
+        "total_questions",
+        String(fullSession.max_questions || 5),
+      );
+      const jobTitle =
+        fullSession.job_profile_json?.title ||
+        fullSession.cv_profile_json?.target_role ||
+        "";
+      if (jobTitle) {
+        sessionStorage.setItem("selected_job_title", jobTitle);
+      }
+      nav("/app/interviews/room");
+    } catch (err: unknown) {
+      setActionError(
+        err instanceof Error
+          ? err.message
+          : "Không thể tiếp tục phiên phỏng vấn này.",
+      );
+    } finally {
+      setResumingId(null);
+    }
+  };
+
+  const handleDeleteSession = async (sessionId: string, jobTitle: string) => {
+    const confirmed = window.confirm(
+      `Xóa phiên phỏng vấn chưa hoàn thành "${jobTitle}"? Hành động này không thể hoàn tác.`,
+    );
+    if (!confirmed) return;
+
+    setActionError("");
+    setDeletingId(sessionId);
+    try {
+      await deleteInterviewSession(sessionId);
+      setUserDbSessions((prev) => {
+        const next = prev.filter((item) => item.session_id !== sessionId);
+        try {
+          localStorage.setItem(cacheKey, JSON.stringify(next));
+        } catch (_) {}
+        return next;
+      });
+    } catch (err: unknown) {
+      setActionError(
+        err instanceof Error
+          ? err.message
+          : "Không thể xóa phiên phỏng vấn. Vui lòng thử lại.",
+      );
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   return (
     <CandidateLayout active="/app/results">
@@ -1675,168 +1796,132 @@ export function CandidateResults() {
       />
 
       <div className="space-y-5">
+        {/* 3 Unified KPI Cards */}
         <section className="grid grid-cols-1 gap-5 sm:grid-cols-3">
-          <KpiCard
+          <StatCard
             label="Điểm gần nhất"
-            value={realScore > 0 ? realScore : "--"}
-            badgeText="/100 điểm"
-            badgeTone={
-              realScore >= 80
-                ? "success"
-                : realScore > 0
-                  ? "neutral"
-                  : "neutral"
-            }
+            value={latestScore !== null ? latestScore : "—"}
+            subtitle={latestDateSubtitle}
+            badgeText={latestTier?.label}
+            badgeTone={latestTier?.badgeTone ?? "neutral"}
             icon={Gauge}
           />
-          <KpiCard
+          <StatCard
             label="Phỏng vấn hoàn thành"
-            value={completedCount}
-            badgeText="Phiên thực tế"
-            badgeTone="neutral"
+            value={completedItems.length}
+            subtitle={
+              incompleteCount > 0
+                ? `${incompleteCount} phiên chưa hoàn thành`
+                : undefined
+            }
             icon={CheckCircle2}
           />
-          <KpiCard
+          <StatCard
             label="Năng lực nổi bật"
-            value={currentEval.overallScore > 0 ? topCompetency : "Chưa có"}
-            badgeText={currentEval.overallScore > 0 ? `${topScore}/100` : "--"}
-            badgeTone={currentEval.overallScore >= 75 ? "success" : "neutral"}
+            value={topCompetency || "—"}
+            badgeText={topScore !== null ? `${topScore}/100` : undefined}
+            badgeTone={topTier?.badgeTone ?? "neutral"}
             icon={Award}
           />
         </section>
 
+        {/* Unified Toolbar: Segmented Status Tabs (Left) + Search & Sort (Right) */}
+        {evaluated.length > 0 && (
+          <FilterToolbar
+            left={
+              <div
+                role="tablist"
+                aria-label="Lọc theo trạng thái phiên phỏng vấn"
+                className="inline-flex items-center rounded-xl border border-zinc-200 bg-zinc-100/80 p-1"
+              >
+                {(
+                  [
+                    { id: "all", label: `Tất cả (${evaluated.length})` },
+                    {
+                      id: "completed",
+                      label: `Hoàn thành (${completedItems.length})`,
+                    },
+                    {
+                      id: "incomplete",
+                      label: `Chưa hoàn thành (${incompleteCount})`,
+                    },
+                  ] as { id: ResultStatusFilter; label: string }[]
+                ).map((tab) => {
+                  const active = statusFilter === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      onClick={() => {
+                        setStatusFilter(tab.id);
+                        setCurrentPage(1);
+                      }}
+                      className={
+                        active
+                          ? "rounded-lg bg-white px-3 py-1.5 text-[12.5px] font-semibold text-zinc-950 shadow-xs transition-colors cursor-pointer border-0"
+                          : "rounded-lg bg-transparent px-3 py-1.5 text-[12.5px] font-medium text-zinc-600 transition-colors hover:text-zinc-950 cursor-pointer border-0"
+                      }
+                    >
+                      {tab.label}
+                    </button>
+                  );
+                })}
+              </div>
+            }
+            right={
+              <>
+                <div className="relative w-full sm:w-[240px]">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" />
+                  <Input
+                    value={searchQuery}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value);
+                      setCurrentPage(1);
+                    }}
+                    placeholder="Tìm theo vị trí phỏng vấn..."
+                    className="h-9 rounded-full bg-white pl-8 text-[13px]"
+                  />
+                </div>
+
+                <Select
+                  value={sortBy}
+                  onValueChange={(val) => {
+                    setSortBy(val as ResultSortOption);
+                    setCurrentPage(1);
+                  }}
+                >
+                  <SelectTrigger
+                    aria-label="Sắp xếp kết quả"
+                    className="h-9 w-[160px] rounded-full bg-white text-[12.5px]"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="newest">Mới nhất</SelectItem>
+                    <SelectItem value="score_desc">Điểm cao nhất</SelectItem>
+                    <SelectItem value="score_asc">Điểm thấp nhất</SelectItem>
+                  </SelectContent>
+                </Select>
+              </>
+            }
+          />
+        )}
+
+        {actionError && (
+          <Alert variant="destructive">
+            <AlertDescription>{actionError}</AlertDescription>
+          </Alert>
+        )}
+
+        {/* Result List */}
         <div className="space-y-3">
-          {loading && userDbSessions.length === 0 ? (
+          {loading && evaluated.length === 0 ? (
             <Card className="rounded-2xl border border-zinc-200 bg-white p-12 text-center text-sm text-zinc-500">
               Đang tải danh sách kết quả phỏng vấn...
             </Card>
-          ) : userDbSessions && userDbSessions.length > 0 ? (
-            paginatedSessions.map((s, idx) => {
-              const actualIndex = (currentPage - 1) * pageSize + idx;
-              const dateStr = s.created_at
-                ? new Date(s.created_at).toLocaleDateString("vi-VN")
-                : "Gần đây";
-              const evalObj = computeAiEvaluation(s);
-              const answeredTurns = s.turns
-                ? s.turns.filter((t: any) => t.answer).length
-                : 0;
-              const score = evalObj.overallScore ?? 0;
-              const jobName =
-                s.job_profile_json?.title ||
-                s.cv_profile_json?.target_role ||
-                evalObj.jobTitle ||
-                "Phiên phỏng vấn AI";
-              return (
-                <Card
-                  key={s.session_id || actualIndex}
-                  className="flex flex-col gap-4 rounded-2xl border border-zinc-200 bg-white p-5 transition-colors hover:border-zinc-300 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div className="flex min-w-0 items-center gap-3.5">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 text-xs font-bold text-emerald-700">
-                      {s.current_stage
-                        ? s.current_stage.slice(0, 2).toUpperCase()
-                        : "AI"}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="truncate text-[15px] font-semibold text-zinc-950">
-                        {jobName}
-                      </div>
-                      <div className="mt-0.5 text-xs text-zinc-500">
-                        {dateStr} · {answeredTurns} câu đã trả lời
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex shrink-0 items-center justify-between gap-4 sm:justify-end">
-                    <div className="text-right tabular-nums">
-                      <span
-                        className={
-                          score === 0
-                            ? "text-xl font-bold text-red-600"
-                            : "text-xl font-bold text-emerald-600"
-                        }
-                      >
-                        {score}
-                      </span>
-                      <span className="text-xs text-zinc-400">/100</span>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        nav(`/app/results/${s.session_id}`, {
-                          state: {
-                            returnTo:
-                              safePage > 1
-                                ? `/app/results?page=${safePage}`
-                                : "/app/results",
-                          },
-                        })
-                      }
-                    >
-                      Xem chi tiết <ChevronRight className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                </Card>
-              );
-            })
-          ) : hasRealSession ? (
-            <Card className="flex flex-col gap-4 rounded-2xl border border-zinc-200 bg-white p-5 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex min-w-0 items-center gap-3.5">
-                <div
-                  className={
-                    realScore === 0
-                      ? "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-red-200 bg-red-50 text-xs font-bold text-red-600"
-                      : "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 text-xs font-bold text-emerald-700"
-                  }
-                >
-                  AI
-                </div>
-                <div className="min-w-0">
-                  <div className="truncate text-[15px] font-semibold text-zinc-950">
-                    {cvAnalysis?.job_context?.title ||
-                      currentEval.jobTitle ||
-                      "Phiên phỏng vấn AI"}
-                  </div>
-                  <div className="mt-0.5 text-xs text-zinc-500">
-                    Phiên phỏng vấn gần nhất ·{" "}
-                    {new Date().toLocaleDateString("vi-VN")} ·{" "}
-                    {currentEval.answeredCount} câu hỏi
-                  </div>
-                </div>
-              </div>
-              <div className="flex shrink-0 items-center gap-4">
-                <div className="tabular-nums">
-                  <span
-                    className={
-                      realScore === 0
-                        ? "text-xl font-bold text-red-600"
-                        : "text-xl font-bold text-emerald-600"
-                    }
-                  >
-                    {realScore}
-                  </span>
-                  <span className="text-xs text-zinc-400">/100</span>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    nav(`/app/results/${session?.session_id || "latest"}`, {
-                      state: {
-                        returnTo:
-                          safePage > 1
-                            ? `/app/results?page=${safePage}`
-                            : "/app/results",
-                      },
-                    })
-                  }
-                >
-                  Xem chi tiết <ChevronRight className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            </Card>
-          ) : (
+          ) : evaluated.length === 0 ? (
             <Card className="flex flex-col items-center justify-center rounded-2xl border border-zinc-200 bg-white px-6 py-14 text-center">
               <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-600">
                 <Video className="h-5 w-5" />
@@ -1856,15 +1941,154 @@ export function CandidateResults() {
                 <Plus /> Tạo phỏng vấn ngay
               </Button>
             </Card>
+          ) : paginatedItems.length === 0 ? (
+            <Card className="rounded-2xl border border-zinc-200 bg-white p-10 text-center text-sm text-zinc-500">
+              Không tìm thấy phiên phỏng vấn phù hợp với bộ lọc hiện tại.
+            </Card>
+          ) : (
+            paginatedItems.map((item) => {
+              const s = item.session;
+              const dateStr = s.created_at
+                ? new Date(s.created_at).toLocaleDateString("vi-VN")
+                : "Gần đây";
+              const maxQ = s.max_questions || 0;
+              const score = item.eval.overallScore;
+              const isResuming = resumingId === s.session_id;
+              const isDeleting = deletingId === s.session_id;
+
+              return (
+                <Card
+                  key={s.session_id}
+                  className="flex flex-col gap-4 rounded-2xl border border-zinc-200 bg-white p-5 transition-colors hover:border-zinc-300 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="flex min-w-0 items-center gap-3.5">
+                    {item.isCompleted ? (
+                      <div
+                        title="Đã hoàn thành"
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-emerald-200/80 bg-emerald-50 text-emerald-600"
+                      >
+                        <CheckCircle2 className="h-5 w-5" />
+                      </div>
+                    ) : (
+                      <div
+                        title="Chưa hoàn thành"
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-amber-200/80 bg-amber-50 text-amber-600"
+                      >
+                        <Clock3 className="h-5 w-5" />
+                      </div>
+                    )}
+
+                    <div className="min-w-0">
+                      <div className="truncate text-[15px] font-semibold text-zinc-950">
+                        {item.jobTitle}
+                      </div>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-zinc-500">
+                        <span>{dateStr}</span>
+                        <span className="text-zinc-300">·</span>
+                        <span>
+                          {maxQ > 0
+                            ? `${item.answeredTurns}/${maxQ} câu đã trả lời`
+                            : `${item.answeredTurns} câu đã trả lời`}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex shrink-0 items-center justify-between gap-3 sm:justify-end">
+                    {item.isCompleted ? (
+                      <>
+                        <div className="flex items-center gap-2.5">
+                          <ScoreBadge
+                            score={score}
+                            mode="pill"
+                            display="label"
+                          />
+                          <ScoreBadge
+                            score={score}
+                            mode="inline"
+                            className="min-w-[60px] justify-end text-xl"
+                          />
+                        </div>
+
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 rounded-full px-3 text-xs"
+                          onClick={() =>
+                            nav(`/app/results/${s.session_id}`, {
+                              state: {
+                                returnTo:
+                                  safePage > 1
+                                    ? `/app/results?page=${safePage}`
+                                    : "/app/results",
+                              },
+                            })
+                          }
+                        >
+                          Xem chi tiết <ChevronRight className="h-3.5 w-3.5" />
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <span
+                          aria-label="Chưa có điểm"
+                          className="min-w-[40px] text-right text-lg font-medium text-zinc-400"
+                        >
+                          —
+                        </span>
+
+                        <div className="flex items-center gap-1.5">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={isResuming || isDeleting}
+                            className="h-8 rounded-full px-3 text-xs"
+                            onClick={() => handleResumeSession(s.session_id)}
+                          >
+                            {isResuming ? (
+                              <>
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                Đang mở...
+                              </>
+                            ) : (
+                              <>
+                                Tiếp tục <ChevronRight className="h-3.5 w-3.5" />
+                              </>
+                            )}
+                          </Button>
+
+                          <button
+                            type="button"
+                            disabled={isDeleting || isResuming}
+                            onClick={() =>
+                              handleDeleteSession(s.session_id, item.jobTitle)
+                            }
+                            title="Xóa phiên chưa hoàn thành"
+                            aria-label="Xóa phiên chưa hoàn thành"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-400 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 disabled:opacity-50 cursor-pointer"
+                          >
+                            {isDeleting ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </Card>
+              );
+            })
           )}
         </div>
       </div>
 
-      {!loading && userDbSessions.length > 0 && (
+      {!loading && filteredItems.length > pageSize && (
         <Pagination
           currentPage={safePage}
           totalPages={totalPages}
-          totalItems={userDbSessions.length}
+          totalItems={filteredItems.length}
           pageSize={pageSize}
           itemLabel="phiên phỏng vấn"
           onPageChange={(p) => {

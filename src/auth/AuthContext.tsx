@@ -1,5 +1,15 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { AuthUser, UserRole } from "./types";
+import {
+  AUTH_ROLE_KEY,
+  AUTH_TOKEN_KEY,
+  AUTH_USER_KEY,
+  UNAUTHORIZED_EVENT,
+  clearAllUserScopedCaches,
+  getAuthToken,
+} from "../services/authStorage";
+import { invalidateSessionsCache } from "../services/interviewApi";
+import { invalidateJobOptionsCache } from "../services/jobApi";
 
 const API_BASE = (
   import.meta.env.VITE_API_BASE_URL ||
@@ -9,12 +19,13 @@ const API_BASE = (
 
 type AuthContextValue = {
   user: AuthUser | null;
+  authLoading: boolean;
   login: (username: string, password: string) => Promise<AuthUser>;
   register: (
     email: string,
     password: string,
     name?: string,
-    role?: UserRole,
+    _ignoredRole?: UserRole,
   ) => Promise<AuthUser>;
   updateProfile: (data: {
     name?: string;
@@ -23,241 +34,219 @@ type AuthContextValue = {
     location?: string;
     email?: string;
   }) => Promise<AuthUser>;
-  loginAs: (role: UserRole) => void;
+  changePassword: (
+    currentPassword: string,
+    newPassword: string,
+  ) => Promise<void>;
   logout: () => void;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-function fallbackMockUser(username: string): AuthUser {
-  const uname = username.trim().toLowerCase();
-  if (uname === "admin") {
-    return {
-      id: "admin-01",
-      user_id_num: 0,
-      username: "admin",
-      name: "Hoàng Nam (Admin)",
-      email: "admin@prephire.vn",
-      role: "ADMIN",
-    };
+function loadInitialUser(): AuthUser | null {
+  try {
+    const token = getAuthToken();
+    // Never restore an unauthenticated cached user without a real JWT token
+    if (!token || token.startsWith("mock-token-")) {
+      return null;
+    }
+    const stored =
+      sessionStorage.getItem(AUTH_USER_KEY) ||
+      localStorage.getItem(AUTH_USER_KEY);
+    if (!stored) return null;
+    const parsed = JSON.parse(stored) as AuthUser;
+    return { ...parsed, token };
+  } catch {
+    return null;
   }
-  if (uname === "recruiter") {
-    return {
-      id: "recruiter-01",
-      user_id_num: 0,
-      username: "recruiter",
-      name: "Hoàng Nam (Recruiter)",
-      email: "recruiter@prephire.vn",
-      role: "RECRUITER",
-    };
-  }
-  const match = uname.match(/^user([1-9]|[1-9][0-9]|100)$/);
-  const num = match ? parseInt(match[1], 10) : 1;
-  return {
-    id: `user-${String(num).padStart(3, "0")}`,
-    user_id_num: num,
-    username: `user${num}`,
-    name: `Ứng viên ${num}`,
-    email: `user${num}@prephire.vn`,
-    role: "CANDIDATE",
-  };
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(() => {
-    try {
-      const stored =
-        sessionStorage.getItem("prephire-user") ||
-        localStorage.getItem("prephire-user");
-      if (stored) return JSON.parse(stored);
-      const role = (sessionStorage.getItem("prephire-role") ||
-        localStorage.getItem("prephire-role")) as UserRole | null;
-      if (role === "ADMIN") return fallbackMockUser("admin");
-      if (role === "CANDIDATE") return fallbackMockUser("user1");
-    } catch {}
-    return null;
+  const [user, setUser] = useState<AuthUser | null>(loadInitialUser);
+  const [authLoading, setAuthLoading] = useState<boolean>(() => {
+    const token = getAuthToken();
+    return Boolean(token && !token.startsWith("mock-token-") && !loadInitialUser());
   });
 
-  const saveUser = (u: AuthUser | null) => {
+  const saveUser = useCallback((u: AuthUser | null) => {
     setUser(u);
     if (u) {
-      sessionStorage.setItem("prephire-user", JSON.stringify(u));
-      localStorage.setItem("prephire-user", JSON.stringify(u));
-      sessionStorage.setItem("prephire-role", u.role);
-      localStorage.setItem("prephire-role", u.role);
-      if (u.user_id_num !== undefined) {
-        sessionStorage.setItem("current_user_id", String(u.user_id_num));
-        localStorage.setItem("current_user_id", String(u.user_id_num));
-      } else {
-        sessionStorage.setItem("current_user_id", u.id);
-        localStorage.setItem("current_user_id", u.id);
-      }
+      sessionStorage.setItem(AUTH_USER_KEY, JSON.stringify(u));
+      localStorage.setItem(AUTH_USER_KEY, JSON.stringify(u));
+      sessionStorage.setItem(AUTH_ROLE_KEY, u.role);
+      localStorage.setItem(AUTH_ROLE_KEY, u.role);
+      const uidStr =
+        u.user_id_num !== undefined ? String(u.user_id_num) : u.id;
+      sessionStorage.setItem("current_user_id", uidStr);
+      localStorage.setItem("current_user_id", uidStr);
       sessionStorage.setItem("current_user_name", u.name);
       localStorage.setItem("current_user_name", u.name);
       if (u.token) {
-        sessionStorage.setItem("prephire-token", u.token);
-        localStorage.setItem("prephire-token", u.token);
+        sessionStorage.setItem(AUTH_TOKEN_KEY, u.token);
+        localStorage.setItem(AUTH_TOKEN_KEY, u.token);
       }
     } else {
-      sessionStorage.removeItem("prephire-user");
-      localStorage.removeItem("prephire-user");
-      sessionStorage.removeItem("prephire-role");
-      localStorage.removeItem("prephire-role");
-      sessionStorage.removeItem("current_user_id");
-      localStorage.removeItem("current_user_id");
-      sessionStorage.removeItem("current_user_name");
-      localStorage.removeItem("current_user_name");
-      sessionStorage.removeItem("prephire-token");
-      localStorage.removeItem("prephire-token");
+      clearAllUserScopedCaches();
+      invalidateSessionsCache();
+      invalidateJobOptionsCache();
     }
-  };
+  }, []);
+
+  const logout = useCallback(() => {
+    saveUser(null);
+  }, [saveUser]);
+
+  // Listen for global 401 unauthorized events from any API client
+  useEffect(() => {
+    const onUnauthorized = () => {
+      saveUser(null);
+    };
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+  }, [saveUser]);
+
+  // Verify stored JWT on app mount (reads both sessionStorage and localStorage)
+  useEffect(() => {
+    const token = getAuthToken();
+    if (!token) {
+      setAuthLoading(false);
+      return;
+    }
+    if (token.startsWith("mock-token-")) {
+      saveUser(null);
+      setAuthLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    fetch(`${API_BASE}/api/v1/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(async (res) => {
+        if (cancelled) return;
+        if (res.status === 401) {
+          saveUser(null);
+          return;
+        }
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled || !data) return;
+        const verifiedUser: AuthUser = {
+          id: data.id,
+          user_id_num: data.user_id_num,
+          username: data.username,
+          name: data.name,
+          email: data.email,
+          role: data.role as UserRole,
+          token,
+          avatar: data.avatar,
+          phone: data.phone,
+          current_role: data.current_role,
+          location: data.location,
+        };
+        saveUser(verifiedUser);
+      })
+      .catch(() => {
+        // Keep existing cached session on transient network error
+      })
+      .finally(() => {
+        if (!cancelled) setAuthLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [saveUser]);
 
   const login = async (
     username: string,
     password: string,
   ): Promise<AuthUser> => {
     const trimmedUser = username.trim();
-    try {
-      const res = await fetch(`${API_BASE}/api/v1/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: trimmedUser, password }),
-      });
+    const res = await fetch(`${API_BASE}/api/v1/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: trimmedUser, password }),
+    });
 
-      if (res.ok) {
-        const data = await res.json();
-        const authUser: AuthUser = {
-          id: data.user.id,
-          user_id_num: data.user.user_id_num,
-          username: data.user.username,
-          name: data.user.name,
-          email: data.user.email,
-          role: data.user.role as UserRole,
-          token: data.access_token,
-          avatar: data.user.avatar,
-          phone: data.user.phone,
-          current_role: data.user.current_role,
-          location: data.user.location,
-        };
-        saveUser(authUser);
-        return authUser;
-      } else {
-        let errorMsg = "Đăng nhập không thành công";
-        try {
-          const err = await res.json();
-          if (err.detail) errorMsg = err.detail;
-        } catch {}
-        throw new Error(errorMsg);
-      }
-    } catch (netErr: any) {
-      // If server unreachable, check fallback for mock user
-      if (
-        netErr?.message &&
-        !netErr.message.includes("fetch") &&
-        !netErr.message.includes("network")
-      ) {
-        throw netErr;
-      }
-      if (password === "123456") {
-        const u = fallbackMockUser(trimmedUser);
-        saveUser(u);
-        return u;
-      }
-      throw new Error(
-        netErr?.message || "Không thể kết nối đến máy chủ xác thực",
-      );
+    if (!res.ok) {
+      let errorMsg = "Đăng nhập không thành công";
+      try {
+        const err = await res.json();
+        if (err.detail) errorMsg = err.detail;
+      } catch {}
+      throw new Error(errorMsg);
     }
+
+    const data = await res.json();
+    // Clear any leftover caches from a previous user before storing new session
+    clearAllUserScopedCaches();
+    invalidateSessionsCache();
+    invalidateJobOptionsCache();
+
+    const authUser: AuthUser = {
+      id: data.user.id,
+      user_id_num: data.user.user_id_num,
+      username: data.user.username,
+      name: data.user.name,
+      email: data.user.email,
+      role: data.user.role as UserRole,
+      token: data.access_token,
+      avatar: data.user.avatar,
+      phone: data.user.phone,
+      current_role: data.user.current_role,
+      location: data.user.location,
+    };
+    saveUser(authUser);
+    return authUser;
   };
 
   const register = async (
     email: string,
     password: string,
     name?: string,
-    role: UserRole = "CANDIDATE",
   ): Promise<AuthUser> => {
     const trimmedEmail = email.trim();
-    try {
-      const res = await fetch(`${API_BASE}/api/v1/auth/register`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: trimmedEmail,
-          password,
-          name: name?.trim() || undefined,
-          role,
-        }),
-      });
+    const res = await fetch(`${API_BASE}/api/v1/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: trimmedEmail,
+        password,
+        name: name?.trim() || undefined,
+      }),
+    });
 
-      if (res.ok) {
-        const data = await res.json();
-        const authUser: AuthUser = {
-          id: data.user.id,
-          user_id_num: data.user.user_id_num,
-          username: data.user.username,
-          name: data.user.name,
-          email: data.user.email,
-          role: data.user.role as UserRole,
-          token: data.access_token,
-          avatar: data.user.avatar,
-          phone: data.user.phone,
-          current_role: data.user.current_role,
-          location: data.user.location,
-        };
-        saveUser(authUser);
-        return authUser;
-      } else {
-        let errorMsg = "Đăng ký không thành công";
-        try {
-          const err = await res.json();
-          if (err.detail) errorMsg = err.detail;
-        } catch {}
-        throw new Error(errorMsg);
-      }
-    } catch (netErr: any) {
-      if (
-        netErr?.message &&
-        !netErr.message.includes("fetch") &&
-        !netErr.message.includes("network")
-      ) {
-        throw netErr;
-      }
-      throw new Error(
-        netErr?.message || "Không thể kết nối đến máy chủ xác thực",
-      );
+    if (!res.ok) {
+      let errorMsg = "Đăng ký không thành công";
+      try {
+        const err = await res.json();
+        if (err.detail) errorMsg = err.detail;
+      } catch {}
+      throw new Error(errorMsg);
     }
+
+    const data = await res.json();
+    clearAllUserScopedCaches();
+    invalidateSessionsCache();
+    invalidateJobOptionsCache();
+
+    const authUser: AuthUser = {
+      id: data.user.id,
+      user_id_num: data.user.user_id_num,
+      username: data.user.username,
+      name: data.user.name,
+      email: data.user.email,
+      role: data.user.role as UserRole,
+      token: data.access_token,
+      avatar: data.user.avatar,
+      phone: data.user.phone,
+      current_role: data.user.current_role,
+      location: data.user.location,
+    };
+    saveUser(authUser);
+    return authUser;
   };
-
-  useEffect(() => {
-    const token = sessionStorage.getItem("prephire-token");
-    if (token) {
-      fetch(`${API_BASE}/api/v1/auth/me`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-        .then((res) => (res.ok ? res.json() : null))
-        .then((data) => {
-          if (data) {
-            setUser((prev) => {
-              const updated: AuthUser = {
-                id: data.id,
-                user_id_num: data.user_id_num,
-                username: data.username,
-                name: data.name,
-                email: data.email,
-                role: data.role as UserRole,
-                token: token,
-                avatar: data.avatar ?? prev?.avatar,
-                phone: data.phone ?? prev?.phone,
-                current_role: data.current_role ?? prev?.current_role,
-                location: data.location ?? prev?.location,
-              };
-              sessionStorage.setItem("prephire-user", JSON.stringify(updated));
-              return updated;
-            });
-          }
-        })
-        .catch(() => {});
-    }
-  }, []);
 
   const updateProfile = async (data: {
     name?: string;
@@ -266,7 +255,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     location?: string;
     email?: string;
   }): Promise<AuthUser> => {
-    const token = user?.token || sessionStorage.getItem("prephire-token");
+    const token = user?.token || getAuthToken();
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     };
@@ -274,73 +263,87 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       headers["Authorization"] = `Bearer ${token}`;
     }
 
-    try {
-      const res = await fetch(`${API_BASE}/api/v1/auth/profile`, {
-        method: "PUT",
-        headers,
-        body: JSON.stringify(data),
-      });
+    const res = await fetch(`${API_BASE}/api/v1/auth/profile`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify(data),
+    });
 
-      if (res.ok) {
-        const updatedUser = await res.json();
-        const authUser: AuthUser = {
-          id: updatedUser.id,
-          user_id_num: updatedUser.user_id_num,
-          username: updatedUser.username,
-          name: updatedUser.name,
-          email: updatedUser.email,
-          role: updatedUser.role as UserRole,
-          token: token || undefined,
-          avatar: updatedUser.avatar,
-          phone: updatedUser.phone,
-          current_role: updatedUser.current_role,
-          location: updatedUser.location,
-        };
-        saveUser(authUser);
-        return authUser;
-      } else {
-        let errDetail = "Không thể cập nhật hồ sơ";
-        try {
-          const err = await res.json();
-          if (err.detail) errDetail = err.detail;
-        } catch {}
-        throw new Error(errDetail);
-      }
-    } catch (err: any) {
-      // Chỉ fallback cục bộ nếu mất kết nối mạng, lỗi nghiệp vụ từ BE phải hiển thị rõ
-      const isNetworkError =
-        err instanceof TypeError ||
-        /fetch|network/i.test(String(err?.message || ""));
-      if (isNetworkError && user) {
-        const authUser: AuthUser = {
-          ...user,
-          ...data,
-          name: data.name ?? user.name,
-          email: data.email ?? user.email,
-          phone: data.phone ?? user.phone,
-          current_role: data.current_role ?? user.current_role,
-          location: data.location ?? user.location,
-        };
-        saveUser(authUser);
-        return authUser;
-      }
-      throw err;
+    if (res.status === 401) {
+      saveUser(null);
+      throw new Error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
     }
+
+    if (!res.ok) {
+      let errDetail = "Không thể cập nhật hồ sơ";
+      try {
+        const err = await res.json();
+        if (err.detail) errDetail = err.detail;
+      } catch {}
+      throw new Error(errDetail);
+    }
+
+    const updatedUser = await res.json();
+    const authUser: AuthUser = {
+      id: updatedUser.id,
+      user_id_num: updatedUser.user_id_num,
+      username: updatedUser.username,
+      name: updatedUser.name,
+      email: updatedUser.email,
+      role: updatedUser.role as UserRole,
+      token: token || undefined,
+      avatar: updatedUser.avatar,
+      phone: updatedUser.phone,
+      current_role: updatedUser.current_role,
+      location: updatedUser.location,
+    };
+    saveUser(authUser);
+    return authUser;
   };
 
-  const loginAs = (role: UserRole) => {
-    const u =
-      role === "ADMIN" ? fallbackMockUser("admin") : fallbackMockUser("user1");
-    saveUser(u);
-  };
+  const changePassword = async (
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<void> => {
+    const token = user?.token || getAuthToken();
+    const res = await fetch(`${API_BASE}/api/v1/auth/change-password`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        current_password: currentPassword,
+        new_password: newPassword,
+      }),
+    });
 
-  const logout = () => {
-    saveUser(null);
+    if (res.status === 401) {
+      saveUser(null);
+      throw new Error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
+    }
+
+    if (!res.ok) {
+      let errDetail = "Không thể đổi mật khẩu";
+      try {
+        const err = await res.json();
+        if (err.detail) errDetail = err.detail;
+      } catch {}
+      throw new Error(errDetail);
+    }
   };
 
   return (
     <AuthContext.Provider
-      value={{ user, login, register, updateProfile, loginAs, logout }}
+      value={{
+        user,
+        authLoading,
+        login,
+        register,
+        updateProfile,
+        changePassword,
+        logout,
+      }}
     >
       {children}
     </AuthContext.Provider>

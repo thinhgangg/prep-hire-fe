@@ -14,7 +14,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  getScoreThresholdColor,
+  getScoreTier,
   type UserScoreChartPoint,
 } from "@/utils/dashboardMetrics";
 
@@ -36,12 +36,7 @@ type CustomTooltipProps = {
 function ScoreProgressTooltip({ active, payload }: CustomTooltipProps) {
   if (!active || !payload || payload.length === 0) return null;
   const item = payload[0].payload;
-  const scoreColor =
-    item.score >= 80
-      ? "text-emerald-600"
-      : item.score >= 50
-        ? "text-amber-600"
-        : "text-red-600";
+  const tier = getScoreTier(item.score);
 
   return (
     <div className="max-w-[260px] rounded-xl border border-zinc-200 bg-white px-3.5 py-2.5 shadow-lg">
@@ -50,14 +45,17 @@ function ScoreProgressTooltip({ active, payload }: CustomTooltipProps) {
           Phiên {item.orderLabel}
           {item.isLatest ? " · Gần nhất" : ""}
         </span>
-        <span className={`text-[14px] font-bold tabular-nums ${scoreColor}`}>
+        <span className={`text-[14px] font-bold tabular-nums ${tier.textClass}`}>
           {item.score}/100
         </span>
       </div>
       <div className="mt-1 truncate text-[12px] font-medium text-zinc-700">
         {item.jobTitle}
       </div>
-      <div className="mt-1 text-[12px] text-zinc-500">{item.dateTimeLabel}</div>
+      <div className="mt-1 flex items-center justify-between gap-2 text-[12px] text-zinc-500">
+        <span>{item.dateTimeLabel}</span>
+        <span className={`font-medium ${tier.textClass}`}>{tier.label}</span>
+      </div>
     </div>
   );
 }
@@ -169,9 +167,7 @@ export function UserScoreProgressCard({
                   {points.map((entry) => (
                     <Cell
                       key={entry.sessionId}
-                      fill={getScoreThresholdColor(entry.score, entry.isLatest)}
-                      stroke={entry.isLatest ? "#09090B" : "none"}
-                      strokeWidth={entry.isLatest ? 1.5 : 0}
+                      fill={getScoreTier(entry.score).hex}
                     />
                   ))}
                 </Bar>
@@ -191,7 +187,7 @@ export function UserScoreProgressCard({
                 50–79 (Khá)
               </span>
               <span className="inline-flex items-center gap-1.5">
-                <span className="h-2.5 w-2.5 rounded-full bg-red-400" />
+                <span className="h-2.5 w-2.5 rounded-full bg-red-500" />
                 &lt; 50 (Cần cải thiện)
               </span>
             </div>

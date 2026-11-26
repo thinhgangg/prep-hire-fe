@@ -3,6 +3,8 @@ import {
   getSessionJobTitle,
   type InterviewSession,
 } from "@/services/interviewApi";
+import { getScoreMeta, type ScoreMeta } from "@/utils/scoreMeta";
+export { getScoreMeta, type ScoreMeta };
 
 export type SessionEvaluationSummary = {
   overallScore: number;
@@ -128,18 +130,40 @@ export function filterSessionsByDateRange(
   });
 }
 
+export type ScoreTierKey = "good" | "fair" | "poor";
+
+export type ScoreTier = {
+  key: ScoreTierKey;
+  label: "Tốt" | "Khá" | "Cần cải thiện";
+  hex: string;
+  textClass: string;
+  badgeTone: "success" | "warning" | "destructive";
+};
+
 /**
- * Threshold bar color for User Dashboard score progression:
- * >= 80: emerald (green), 50-79: amber (yellow), < 50: red.
- * Latest session uses a bolder/darker shade for visual emphasis.
+ * Delegates to the single canonical getScoreMeta(score) helper.
+ */
+export function getScoreTier(score: number): ScoreTier {
+  const meta = getScoreMeta(score);
+  return {
+    key: (meta.key === "unrated" ? "poor" : meta.key) as ScoreTierKey,
+    label: (meta.label === "—" ? "Cần cải thiện" : meta.label) as ScoreTier["label"],
+    hex: meta.hex,
+    textClass: meta.textClass,
+    badgeTone: (meta.badgeTone === "neutral"
+      ? "destructive"
+      : meta.badgeTone) as ScoreTier["badgeTone"],
+  };
+}
+
+/**
+ * Unified threshold color for score charts (>= 80 green, 50-79 amber, < 50 red).
  */
 export function getScoreThresholdColor(
   score: number,
-  isLatest: boolean,
+  _isLatest = false,
 ): string {
-  if (score >= 80) return isLatest ? "#047857" : "#10B981";
-  if (score >= 50) return isLatest ? "#B45309" : "#F59E0B";
-  return isLatest ? "#B91C1C" : "#F87171";
+  return getScoreMeta(score).hex;
 }
 
 /**
@@ -329,22 +353,21 @@ export function fillMissingDates(
 }
 
 /**
- * Admin "Điểm AI" tab: Score distribution histogram across 5 fixed bins (0-20 .. 80-100)
+ * Admin "Điểm AI" tab: Score distribution histogram across 5 bins aligned to getScoreMeta thresholds
+ * (< 50 red, 50-79 amber, >= 80 green). Counts ONLY completed sessions to match KPI & Quality Donut.
  */
 export function buildScoreHistogramData(
   evaluated: EvaluatedSessionItem[],
 ): ScoreHistogramBin[] {
-  const scored = evaluated.filter(
-    (item) => item.isCompleted || item.eval.overallScore > 0,
-  );
+  const scored = evaluated.filter((item) => item.isCompleted);
   const total = scored.length;
 
   const binDefs = [
-    { range: "0–20", min: 0, max: 20, color: "#EF4444" },
-    { range: "20–40", min: 20, max: 40, color: "#F87171" },
-    { range: "40–60", min: 40, max: 60, color: "#F59E0B" },
-    { range: "60–80", min: 60, max: 80, color: "#34D399" },
-    { range: "80–100", min: 80, max: 100, color: "#059669" },
+    { range: "0–25", min: 0, max: 25, color: "#EF4444" },
+    { range: "25–50", min: 25, max: 50, color: "#F87171" },
+    { range: "50–65", min: 50, max: 65, color: "#F59E0B" },
+    { range: "65–80", min: 65, max: 80, color: "#FBBF24" },
+    { range: "80–100", min: 80, max: 100, color: "#10B981" },
   ];
 
   return binDefs.map((bin, idx) => {
@@ -362,19 +385,24 @@ export function buildScoreHistogramData(
 }
 
 /**
- * Admin Quality Distribution Donut Chart (3 tiers)
+ * Admin Quality Distribution Donut Chart (3 tiers aligned 100% with getScoreMeta):
+ * Counts ONLY completed sessions so `totalScored` matches the "Hoàn thành" KPI count.
  */
 export function buildQualityDonutData(
   evaluated: EvaluatedSessionItem[],
 ): QualityDonutResult {
-  const scored = evaluated.filter((item) => item.eval.overallScore > 0);
+  const scored = evaluated.filter((item) => item.isCompleted);
   const totalScored = scored.length;
 
-  const high = scored.filter((item) => item.eval.overallScore >= 80).length;
-  const mid = scored.filter(
-    (item) => item.eval.overallScore >= 60 && item.eval.overallScore < 80,
+  const high = scored.filter(
+    (item) => getScoreMeta(item.eval.overallScore).key === "good",
   ).length;
-  const low = scored.filter((item) => item.eval.overallScore < 60).length;
+  const mid = scored.filter(
+    (item) => getScoreMeta(item.eval.overallScore).key === "fair",
+  ).length;
+  const low = scored.filter(
+    (item) => getScoreMeta(item.eval.overallScore).key === "poor",
+  ).length;
 
   const pct = (n: number) =>
     totalScored > 0 ? Math.round((n / totalScored) * 100) : 0;
@@ -383,22 +411,22 @@ export function buildQualityDonutData(
     totalScored,
     segments: [
       {
-        name: "Phù hợp cao",
+        name: "Phù hợp cao (≥ 80)",
         count: high,
         percentage: pct(high),
-        color: "#059669",
+        color: getScoreMeta(85).hex,
       },
       {
-        name: "Cần xem xét",
+        name: "Cần xem xét (50–79)",
         count: mid,
         percentage: pct(mid),
-        color: "#F59E0B",
+        color: getScoreMeta(65).hex,
       },
       {
-        name: "Chưa đạt",
+        name: "Chưa phù hợp (< 50)",
         count: low,
         percentage: pct(low),
-        color: "#EF4444",
+        color: getScoreMeta(30).hex,
       },
     ],
   };

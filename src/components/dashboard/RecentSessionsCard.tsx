@@ -27,6 +27,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ScoreBadge, SectionHeader } from "@/components/shared";
 
 export type SessionRowItem = {
   id: string;
@@ -60,6 +61,7 @@ type RecentSessionsCardProps = {
   itemLabel?: string;
   enableSort?: boolean;
   enableStatusFilter?: boolean;
+  showSearch?: boolean;
 };
 
 export function RecentSessionsCard({
@@ -74,6 +76,7 @@ export function RecentSessionsCard({
   itemLabel = "phiên phỏng vấn",
   enableSort = false,
   enableStatusFilter = false,
+  showSearch = true,
 }: RecentSessionsCardProps) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("Tất cả");
@@ -139,60 +142,72 @@ export function RecentSessionsCard({
     );
   };
 
+  const hasToolbarControls = enableSort || showSearch;
+
   return (
     <Card className="flex h-full flex-col rounded-2xl border border-zinc-200 bg-white p-6">
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <h2 className="m-0 text-[16px] font-semibold tracking-tight text-zinc-950">
-            {title}
-          </h2>
-          {onViewAll && (
-            <button
-              type="button"
-              onClick={onViewAll}
-              className="inline-flex items-center gap-0.5 border-0 bg-transparent p-0 text-[12px] font-medium text-emerald-600 hover:text-emerald-700 cursor-pointer"
-            >
-              Xem tất cả <ChevronRight className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          {enableSort && (
-            <Select
-              value={`${sortKey}-${sortDir}`}
-              onValueChange={(val) => {
-                const [k, d] = val.split("-") as [SortKey, SortDir];
-                setSortKey(k);
-                setSortDir(d);
-              }}
-            >
-              <SelectTrigger
-                aria-label="Sắp xếp danh sách"
-                className="h-9 w-[165px] rounded-full text-[12px]"
+      {hasToolbarControls ? (
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <h2 className="m-0 text-[16px] font-semibold tracking-tight text-zinc-950">
+              {title}
+            </h2>
+            {onViewAll && (
+              <button
+                type="button"
+                onClick={onViewAll}
+                className="inline-flex items-center gap-0.5 border-0 bg-transparent p-0 text-[12px] font-medium text-emerald-600 hover:text-emerald-700 cursor-pointer"
               >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="date-desc">Mới nhất trước</SelectItem>
-                <SelectItem value="date-asc">Cũ nhất trước</SelectItem>
-                <SelectItem value="score-desc">Điểm cao → thấp</SelectItem>
-                <SelectItem value="score-asc">Điểm thấp → cao</SelectItem>
-              </SelectContent>
-            </Select>
-          )}
+                Xem tất cả <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
 
-          <div className="relative w-full sm:w-[210px]">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" />
-            <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={searchPlaceholder}
-              className="h-9 rounded-full border-zinc-200 pl-8 text-[13px]"
-            />
+          <div className="flex flex-wrap items-center gap-2">
+            {enableSort && (
+              <Select
+                value={`${sortKey}-${sortDir}`}
+                onValueChange={(val) => {
+                  const [k, d] = val.split("-") as [SortKey, SortDir];
+                  setSortKey(k);
+                  setSortDir(d);
+                }}
+              >
+                <SelectTrigger
+                  aria-label="Sắp xếp danh sách"
+                  className="h-9 w-[165px] rounded-full text-[12px]"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="date-desc">Mới nhất trước</SelectItem>
+                  <SelectItem value="date-asc">Cũ nhất trước</SelectItem>
+                  <SelectItem value="score-desc">Điểm cao → thấp</SelectItem>
+                  <SelectItem value="score-asc">Điểm thấp → cao</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
+
+            {showSearch && (
+              <div className="relative w-full sm:w-[210px]">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" />
+                <Input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder={searchPlaceholder}
+                  className="h-9 rounded-full border-zinc-200 pl-8 text-[13px]"
+                />
+              </div>
+            )}
           </div>
         </div>
-      </div>
+      ) : (
+        <SectionHeader
+          title={title}
+          actionLabel={onViewAll ? "Xem tất cả" : undefined}
+          onAction={onViewAll}
+        />
+      )}
 
       {enableStatusFilter && (
         <div className="mb-3 flex flex-wrap items-center gap-1.5">
@@ -297,17 +312,11 @@ export function RecentSessionsCard({
                   {row.dateLabel}
                 </TableCell>
 
-                <TableCell className="px-2 py-3 text-[13px] font-semibold text-zinc-950 tabular-nums whitespace-nowrap">
-                  {row.score !== null && row.score > 0 ? (
-                    <>
-                      {row.score}
-                      <span className="text-[11px] font-normal text-zinc-400">
-                        /100
-                      </span>
-                    </>
-                  ) : (
-                    <span className="text-zinc-400">—</span>
-                  )}
+                <TableCell className="px-2 py-3 text-[13px] font-semibold tabular-nums whitespace-nowrap">
+                  <ScoreBadge
+                    score={row.score}
+                    mode="inline"
+                  />
                 </TableCell>
 
                 <TableCell className="px-2 py-3 whitespace-nowrap">
@@ -319,7 +328,7 @@ export function RecentSessionsCard({
                           ? "destructive"
                           : "warning"
                     }
-                    className="rounded-full px-2.5 py-0.5 text-[11px]"
+                    className="whitespace-nowrap rounded-full px-2.5 py-0.5 text-[11px]"
                   >
                     {row.statusLabel}
                   </Badge>

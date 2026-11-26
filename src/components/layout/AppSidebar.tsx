@@ -15,17 +15,18 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/auth/AuthContext";
 import { BrandLogo } from "@/components/BrandLogo";
 import { cn } from "@/lib/utils";
+import { getAvatarInitials } from "@/utils/scoreMeta";
 
 export type SidebarRole = "user" | "admin";
 
-type MenuItem = {
+export type MenuItem = {
   id: string;
   label: string;
   icon: LucideIcon;
   matchKeys?: string[];
 };
 
-type MenuSection = {
+export type MenuSection = {
   label: string;
   items: MenuItem[];
 };
@@ -90,6 +91,7 @@ type AppSidebarProps = {
   role: SidebarRole;
   activeKey: string;
   onNavigate: (key: string) => void;
+  navSections?: MenuSection[];
   mobileOpen?: boolean;
   onCloseMobile?: () => void;
 };
@@ -98,31 +100,29 @@ export function AppSidebar({
   role,
   activeKey,
   onNavigate,
+  navSections,
   mobileOpen = false,
   onCloseMobile,
 }: AppSidebarProps) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
-  const sections = role === "admin" ? ADMIN_SECTIONS : USER_SECTIONS;
+  const sections =
+    navSections || (role === "admin" ? ADMIN_SECTIONS : USER_SECTIONS);
 
   const displayName =
-    user?.name || (role === "admin" ? "Hoàng Nam" : "Ứng viên");
+    user?.name || (role === "admin" ? "Quản trị viên" : "Ứng viên");
   const roleSubtitle =
     role === "admin"
-      ? "Quản trị viên"
-      : user?.username
-        ? `ID: ${user.username}`
-        : "Ứng viên";
+      ? user?.role === "RECRUITER"
+        ? "Nhà tuyển dụng"
+        : "Quản trị viên"
+      : "Ứng viên";
 
-  const initials =
-    displayName
-      .split(" ")
-      .map((w) => w[0])
-      .filter(Boolean)
-      .slice(-2)
-      .join("")
-      .toUpperCase() || (role === "admin" ? "AD" : "UV");
+  const initials = getAvatarInitials(
+    displayName,
+    role === "admin" ? "AD" : "UV",
+  );
 
   const handleLogout = () => {
     logout();
@@ -151,7 +151,7 @@ export function AppSidebar({
 
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex h-screen w-[260px] shrink-0 flex-col border-r border-[#E4E4E7] bg-white transition-transform duration-200 ease-out lg:z-30 lg:translate-x-0",
+          "fixed inset-y-0 left-0 z-50 flex h-screen w-64 shrink-0 flex-col border-r border-[#E4E4E7] bg-white transition-transform duration-200 ease-out lg:z-30 lg:translate-x-0",
           mobileOpen ? "translate-x-0" : "-translate-x-full",
         )}
       >
@@ -231,6 +231,9 @@ export function AppSidebar({
             <div className="min-w-0 flex-1">
               <div className="truncate text-[13px] font-semibold leading-tight text-zinc-950">
                 {displayName}
+              </div>
+              <div className="mt-0.5 truncate text-[11px] text-zinc-500">
+                {roleSubtitle}
               </div>
             </div>
             <button

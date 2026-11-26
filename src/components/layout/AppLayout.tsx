@@ -1,13 +1,18 @@
 import React, { useState } from "react";
 import { Menu } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
-import { AppSidebar, type SidebarRole } from "@/components/layout/AppSidebar";
+import {
+  AppSidebar,
+  type MenuSection,
+  type SidebarRole,
+} from "@/components/layout/AppSidebar";
 import { cn } from "@/lib/utils";
 
 type AppLayoutProps = {
   role: SidebarRole;
   activeKey: string;
   onNavigate: (key: string) => void;
+  navSections?: MenuSection[];
   wide?: boolean;
   children: React.ReactNode;
 };
@@ -16,7 +21,7 @@ export function AppLayout({
   role,
   activeKey,
   onNavigate,
-  wide = false,
+  navSections,
   children,
 }: AppLayoutProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -27,11 +32,12 @@ export function AppLayout({
         role={role}
         activeKey={activeKey}
         onNavigate={onNavigate}
+        navSections={navSections}
         mobileOpen={mobileOpen}
         onCloseMobile={() => setMobileOpen(false)}
       />
 
-      <div className="flex min-w-0 flex-1 flex-col lg:pl-[260px]">
+      <div className="flex min-w-0 flex-1 flex-col lg:pl-64">
         {/* Mobile Topbar */}
         <div className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-zinc-200 bg-white px-4 lg:hidden">
           <button
