@@ -1,136 +1,738 @@
-import { useEffect, useRef, useState } from 'react'
-import { ArrowRight, BarChart3, Bell, BriefcaseBusiness, Check, ChevronDown, CircleHelp, FileText, Home, LogOut, Menu, Search, Settings, Sparkles, UploadCloud, UserRound, Users, X } from 'lucide-react'
-import { AnalysisPage, CandidatesPage, DeviceCheckPage, InterviewRoom, InterviewsPage, JobsPage, ProcessingPage, ReportPage, ReportsPage, SettingsPage } from './Pages'
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import {
+  BarChart3,
+  BriefcaseBusiness,
+  CalendarDays,
+  CheckCircle2,
+  ChevronRight,
+  Download,
+  FileText,
+  Gauge,
+  RotateCcw,
+  Trophy,
+  Users,
+  Video,
+} from "lucide-react";
+import {
+  AppShell,
+  PageHeader,
+  ScoreBadge,
+  SectionHeader,
+  StatCard,
+  getVietnameseDateEyebrow,
+} from "@/components/shared";
+import { AdminTrafficHistogramCard } from "@/components/dashboard/AdminTrafficHistogramCard";
+import { QualityDonutCard } from "@/components/dashboard/QualityDonutCard";
+import { RecentSessionsCard } from "@/components/dashboard/RecentSessionsCard";
+import { VacanciesCard } from "@/components/dashboard/VacanciesCard";
+import {
+  buildQualityDonutData,
+  buildScoreHistogramData,
+  evaluateSessions,
+  fillMissingDates,
+  filterSessionsByDateRange,
+  getScoreMeta,
+  toLocalIsoDate,
+} from "@/utils/dashboardMetrics";
+import { getAvatarInitials } from "@/utils/scoreMeta";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { fetchRealJobs, getCachedRealJobs, DbJob } from "./services/jobApi";
+import {
+  saveInterviewSession,
+  getAllSessions,
+  getCachedAllSessions,
+  type InterviewSession,
+} from "./services/interviewApi";
+import { useAuth } from "./auth/AuthContext";
+import { computeAiEvaluation } from "@/utils/aiEvaluation";
+export { AuthPage, Login } from "./auth/AuthPage";
 
-export type Page = 'login' | 'dashboard' | 'start' | 'interviews' | 'candidates' | 'jobs' | 'reports' | 'settings' | 'analysis' | 'device' | 'room' | 'processing' | 'report'
-type Job = { id: number; title: string; department: string; type: string; location: string; accent: string; skills: string[] }
-
-const jobs: Job[] = [
-  { id: 1, title: 'Senior Frontend Developer', department: 'Product & Engineering', type: 'Toàn thời gian', location: 'Hà Nội · Hybrid', accent: '#5b5bd6', skills: ['React', 'TypeScript', 'System Design'] },
-  { id: 2, title: 'Backend Developer', department: 'Engineering', type: 'Toàn thời gian', location: 'TP. Hồ Chí Minh', accent: '#12805c', skills: ['Node.js', 'PostgreSQL', 'REST API'] },
-  { id: 3, title: 'Product Designer', department: 'Product & Design', type: 'Toàn thời gian', location: 'Remote', accent: '#d97745', skills: ['Figma', 'UX Research', 'Design System'] },
-]
-
-function Logo({ light = false }: { light?: boolean }) {
-  return <div className={`logo ${light ? 'light' : ''}`}><span className="logo-mark"><Sparkles size={17}/></span><span>Interviewly</span></div>
-}
-
-export function Login({ onLogin, onCandidate }: { onLogin: () => void; onCandidate?: () => void }) {
-  const [showPass, setShowPass] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [email,setEmail]=useState('admin')
-  const [password,setPassword]=useState('123456')
-  const [error,setError]=useState('')
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();setError('')
-    const isAdmin=email.trim().toLowerCase()==='admin'&&password==='123456'
-    const isCandidate=email.trim().toLowerCase()==='user'&&password==='123456'
-    if(!isAdmin&&!isCandidate){setError('Email hoặc mật khẩu không đúng. Vui lòng dùng tài khoản mẫu bên dưới.');return}
-    setBusy(true);setTimeout(()=>isCandidate&&onCandidate?onCandidate():onLogin(),500)
-  }
-  return <main className="login-page">
-    <section className="login-panel">
-      <div className="login-top"><Logo /></div>
-      <div className="login-box">
-        <div className="eyebrow">CHÀO MỪNG TRỞ LẠI</div>
-        <h1>Đăng nhập vào<br/>không gian tuyển dụng.</h1>
-        <p className="lead">Tiếp tục hành trình tìm kiếm những ứng viên phù hợp nhất cùng trợ lý AI của bạn.</p>
-        <button className="google-btn" onClick={onLogin}><span className="google-g">G</span> Tiếp tục với Google</button>
-        <div className="divider"><span>hoặc đăng nhập bằng email</span></div>
-        <form onSubmit={submit}>
-          <label>Tên đăng nhập</label>
-          <input type="text" value={email} onChange={e=>setEmail(e.target.value)} placeholder="Nhập tên đăng nhập" required />
-          <div className="password-label"><label>Mật khẩu</label><a href="#">Quên mật khẩu?</a></div>
-          <div className="pass-wrap"><input type={showPass ? 'text' : 'password'} value={password} onChange={e=>setPassword(e.target.value)} required/><button type="button" onClick={() => setShowPass(!showPass)}>{showPass ? 'Ẩn' : 'Hiện'}</button></div>
-          {error&&<div className="login-error">{error}</div>}
-          <label className="remember"><input type="checkbox" defaultChecked/> <span>Ghi nhớ đăng nhập</span></label>
-          <button className="primary full" disabled={busy}>{busy ? 'Đang đăng nhập…' : <>Đăng nhập <ArrowRight size={17}/></>}</button>
-        </form>
-        <div className="demo-accounts"><p>TÀI KHOẢN DÙNG THỬ</p><button type="button" onClick={()=>{setEmail('admin');setPassword('123456');setError('')}}><span className="demo-admin">AD</span><span><b>Quản trị viên</b><small>admin · 123456</small></span><ArrowRight/></button><button type="button" onClick={()=>{setEmail('user');setPassword('123456');setError('')}}><span className="demo-candidate">UV</span><span><b>Ứng viên</b><small>user · 123456</small></span><ArrowRight/></button></div>
-        <p className="signup">Chưa có tài khoản? <a href="#">Đăng ký miễn phí</a></p>
-      </div>
-      <p className="copyright">© 2026 Interviewly · <a href="#">Quyền riêng tư</a> · <a href="#">Điều khoản</a></p>
-    </section>
-    <aside className="login-aside">
-      <div className="orb orb-one"></div><div className="orb orb-two"></div>
-      <div className="quote-badge"><span></span> AI INTERVIEW PLATFORM</div>
-      <blockquote>“Tuyển đúng người không nên là một trò may rủi.”</blockquote>
-      <p>Interviewly giúp đội ngũ của bạn đánh giá ứng viên nhất quán, khách quan và sâu sắc hơn.</p>
-      <div className="mini-report">
-        <div className="mini-head"><div className="avatar">NA</div><div><b>Nguyễn Minh Anh</b><small>Frontend Developer</small></div><span className="score">86</span></div>
-        <div className="bars"><span style={{width:'86%'}}></span><span style={{width:'74%'}}></span><span style={{width:'91%'}}></span></div>
-        <div className="mini-foot"><span><Check size={13}/> Phân tích hoàn tất</span><small>Vừa xong</small></div>
-      </div>
-      <div className="trusted"><span>Được tin dùng bởi đội ngũ tuyển dụng hiện đại</span><div>northstar &nbsp;&nbsp; ACME® &nbsp;&nbsp; VERTEX</div></div>
-    </aside>
-  </main>
-}
-
-function Sidebar({ page, go }: { page: Page; go: (p: Page) => void }) {
-  const [open, setOpen] = useState(false)
-  return <><button className="mobile-menu" onClick={() => setOpen(true)}><Menu/></button>{open && <div className="scrim" onClick={() => setOpen(false)}/>}<aside className={`sidebar ${open ? 'open' : ''}`}>
-    <div className="side-logo"><Logo/><button onClick={() => setOpen(false)}><X/></button></div>
-    <nav>
-      <small>KHÔNG GIAN LÀM VIỆC</small>
-      <button className={page === 'dashboard' ? 'active':''} onClick={() => {go('dashboard');setOpen(false)}}><Home/> Tổng quan</button>
-      <button className={['start','interviews','analysis','device','room','processing'].includes(page) ? 'active':''} onClick={() => {go('interviews');setOpen(false)}}><Sparkles/> Phỏng vấn <span>12</span></button>
-      <button className={page === 'candidates' ? 'active':''} onClick={() => {go('candidates');setOpen(false)}}><Users/> Ứng viên</button><button className={page === 'jobs' ? 'active':''} onClick={() => {go('jobs');setOpen(false)}}><BriefcaseBusiness/> Công việc</button><button className={['reports','report'].includes(page) ? 'active':''} onClick={() => {go('reports');setOpen(false)}}><BarChart3/> Báo cáo</button>
-      <small>QUẢN LÝ</small><button className={page === 'settings' ? 'active':''} onClick={() => {go('settings');setOpen(false)}}><Settings/> Cài đặt</button><button><CircleHelp/> Trung tâm hỗ trợ</button>
-    </nav>
-    <div className="upgrade"><div className="spark"><Sparkles size={18}/></div><b>Mở khóa sức mạnh AI</b><p>Nâng cấp để phỏng vấn không giới hạn.</p><button>Tìm hiểu thêm</button></div>
-    <div className="profile"><div className="avatar">HN</div><div><b>Hoàng Nam</b><small>Talent Lead</small></div><button><ChevronDown/></button></div>
-  </aside></>
-}
+export type Page =
+  | "login"
+  | "dashboard"
+  | "start"
+  | "interviews"
+  | "candidates"
+  | "jobs"
+  | "reports"
+  | "settings"
+  | "help"
+  | "analysis"
+  | "device"
+  | "room"
+  | "processing"
+  | "report";
 
 export function Dashboard({ go }: { go: (p: Page) => void }) {
-  return <AppShell page="dashboard" go={go}>
-    <header className="topbar"><div><p>THỨ BA, 29 THÁNG 9</p><h1>Chào buổi sáng, Nam <span>👋</span></h1></div><div className="top-actions"><button className="icon-btn"><Bell/></button><button className="primary" onClick={() => go('start')}><Sparkles size={17}/> Tạo phỏng vấn mới</button></div></header>
-    <section className="hero-card"><div><span className="pill"><Sparkles size={13}/> AI INTERVIEW</span><h2>Tìm đúng người,<br/><em>nhanh hơn.</em></h2><p>Tải CV lên, chọn vị trí tuyển dụng và để AI giúp bạn chuẩn bị một buổi phỏng vấn chuyên sâu.</p><button onClick={() => go('start')}>Bắt đầu phỏng vấn <ArrowRight size={17}/></button></div><div className="hero-visual"><div className="ring r1"></div><div className="ring r2"></div><div className="candidate-card c1"><div className="avatar purple">LT</div><span><b>Linh Trần</b><small>Khớp 92%</small></span></div><div className="candidate-card c2"><div className="avatar green">KM</div><span><b>Khoa Mai</b><small>Khớp 87%</small></span></div><div className="ai-core"><Sparkles/><small>AI</small></div></div></section>
-    <div className="section-title"><div><h3>Tổng quan tuyển dụng</h3><p>Cập nhật hiệu suất trong 30 ngày gần nhất</p></div><button className="filter">30 ngày qua <ChevronDown size={15}/></button></div>
-    <section className="stats"><div><span className="stat-icon lilac"><Users/></span><p>TỔNG ỨNG VIÊN</p><h3>128</h3><small className="up">↗ 12.5%</small></div><div><span className="stat-icon mint"><Sparkles/></span><p>ĐÃ PHỎNG VẤN</p><h3>42</h3><small className="up">↗ 8.2%</small></div><div><span className="stat-icon amber"><BriefcaseBusiness/></span><p>VỊ TRÍ ĐANG MỞ</p><h3>08</h3><small>2 sắp đóng</small></div><div><span className="stat-icon blue"><BarChart3/></span><p>ĐIỂM AI TRUNG BÌNH</p><h3>78.4</h3><small className="up">↗ 3.1%</small></div></section>
-    <section className="recent"><div className="section-title"><div><h3>Phỏng vấn gần đây</h3><p>Những ứng viên mới nhất được đánh giá</p></div><button className="text-btn">Xem tất cả <ArrowRight size={15}/></button></div><div className="table-wrap"><table><thead><tr><th>ỨNG VIÊN</th><th>VỊ TRÍ</th><th>NGÀY PHỎNG VẤN</th><th>TRẠNG THÁI</th><th>ĐIỂM AI</th><th></th></tr></thead><tbody>{[['Nguyễn Minh Anh','Frontend Developer','28/09/2026','Hoàn thành','86'],['Trần Gia Bảo','Backend Developer','27/09/2026','Hoàn thành','79'],['Lê Thu Hà','Product Designer','27/09/2026','Đang xử lý','—']].map((r,i)=><tr key={i}><td><span className={`avatar a${i}`}>{r[0].split(' ').slice(-2).map(x=>x[0]).join('')}</span><b>{r[0]}</b></td><td>{r[1]}</td><td>{r[2]}</td><td><span className={`status ${i===2?'processing':''}`}><i></i>{r[3]}</span></td><td><b>{r[4]}</b></td><td>•••</td></tr>)}</tbody></table></div></section>
-  </AppShell>
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [sessions, setSessions] = useState<InterviewSession[]>(() =>
+    getCachedAllSessions(),
+  );
+  const [loadingSessions, setLoadingSessions] = useState<boolean>(
+    () => getCachedAllSessions().length === 0,
+  );
+  const [jobs, setJobs] = useState<DbJob[]>(() => getCachedRealJobs());
+
+  // Admin date range & chart mode controls
+  const [datePreset, setDatePreset] = useState<"all" | "7d" | "30d" | "custom">(
+    "all",
+  );
+  const [fromDate, setFromDate] = useState<string>("");
+  const [toDate, setToDate] = useState<string>("");
+  const [chartMode, setChartMode] = useState<"daily" | "scores">("daily");
+
+  useEffect(() => {
+    fetchRealJobs().then((list) => {
+      if (Array.isArray(list)) setJobs(list);
+    });
+
+    getAllSessions(100)
+      .then((res) => {
+        if (Array.isArray(res)) {
+          setSessions(res);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoadingSessions(false));
+  }, []);
+
+  const applyPreset = (preset: "all" | "7d" | "30d") => {
+    setDatePreset(preset);
+    if (preset === "all") {
+      setFromDate("");
+      setToDate("");
+      return;
+    }
+    const end = new Date();
+    const start = new Date();
+    start.setDate(end.getDate() - (preset === "7d" ? 6 : 29));
+    setFromDate(toLocalIsoDate(start));
+    setToDate(toLocalIsoDate(end));
+  };
+
+  // Filter & evaluate sessions using typed utils
+  const filteredSessions = useMemo(
+    () => filterSessionsByDateRange(sessions, fromDate, toDate),
+    [sessions, fromDate, toDate],
+  );
+
+  const evaluated = useMemo(
+    () => evaluateSessions(filteredSessions, (s) => computeAiEvaluation(s)),
+    [filteredSessions],
+  );
+
+  const candidatesCount = new Set(
+    evaluated.map((x) =>
+      x.session.user_id != null
+        ? `user-${x.session.user_id}`
+        : x.candidateName.toLowerCase(),
+    ),
+  ).size;
+
+  const completedItems = useMemo(
+    () => evaluated.filter((x) => x.isCompleted),
+    [evaluated],
+  );
+  const completedCount = completedItems.length;
+
+  const completionRate =
+    evaluated.length > 0
+      ? Math.round((completedCount / evaluated.length) * 100)
+      : 0;
+
+  // Strictly match KPI, Histogram, and Quality Donut to completed sessions only
+  const scoredList = completedItems.map((x) => x.eval.overallScore);
+  const avgScoreNum =
+    scoredList.length > 0
+      ? Math.round(
+          (scoredList.reduce((a, b) => a + b, 0) / scoredList.length) * 10,
+        ) / 10
+      : null;
+  const avgScore = avgScoreNum !== null ? avgScoreNum.toFixed(1) : "—";
+  const avgScoreMeta =
+    avgScoreNum !== null ? getScoreMeta(avgScoreNum) : null;
+  const maxScore = scoredList.length > 0 ? Math.max(...scoredList) : "—";
+  const minScore = scoredList.length > 0 ? Math.min(...scoredList) : "—";
+
+  // Stacked Daily Volume (with fillMissingDates) + Score Histogram + Quality Donut
+  const dailyData = useMemo(
+    () => fillMissingDates(evaluated, fromDate, toDate),
+    [evaluated, fromDate, toDate],
+  );
+  const histogramData = useMemo(
+    () => buildScoreHistogramData(evaluated),
+    [evaluated],
+  );
+  const qualityDonut = useMemo(
+    () => buildQualityDonutData(evaluated),
+    [evaluated],
+  );
+
+  // Top 5 Highest Scoring Candidates — deduplicated by candidate (best completed session per person)
+  const topCandidates = useMemo(() => {
+    const bestByCandidate = new Map<string, (typeof completedItems)[number]>();
+    for (const item of completedItems) {
+      const key =
+        item.session.user_id != null
+          ? `uid-${item.session.user_id}`
+          : item.candidateName.trim().toLowerCase();
+      const existing = bestByCandidate.get(key);
+      if (
+        !existing ||
+        item.eval.overallScore > existing.eval.overallScore ||
+        (item.eval.overallScore === existing.eval.overallScore &&
+          item.timestamp > existing.timestamp)
+      ) {
+        bestByCandidate.set(key, item);
+      }
+    }
+    return Array.from(bestByCandidate.values())
+      .sort((a, b) => b.eval.overallScore - a.eval.overallScore)
+      .slice(0, 5);
+  }, [completedItems]);
+
+  // Top 5 Most Interviewed Job Positions (excluding candidate-uploaded custom JDs)
+  const { topInterviewedJobs, uploadedJdSummary } = useMemo(() => {
+    const isCustomUploadedJd = (title: string) => {
+      const norm = title.trim().toLowerCase();
+      return (
+        norm === "jd ứng viên tự tải lên" ||
+        norm === "uploaded jd" ||
+        norm === "custom jd" ||
+        norm === "vị trí phỏng vấn"
+      );
+    };
+
+    const map = new Map<
+      string,
+      { title: string; count: number; scoreSum: number; scoredCount: number }
+    >();
+    const uploaded = { count: 0, scoreSum: 0, scoredCount: 0 };
+
+    evaluated.forEach((item) => {
+      const key = item.jobTitle.trim() || "Vị trí phỏng vấn";
+      if (isCustomUploadedJd(key)) {
+        uploaded.count += 1;
+        if (item.isCompleted) {
+          uploaded.scoreSum += item.eval.overallScore;
+          uploaded.scoredCount += 1;
+        }
+        return;
+      }
+      const prev = map.get(key) || {
+        title: key,
+        count: 0,
+        scoreSum: 0,
+        scoredCount: 0,
+      };
+      prev.count += 1;
+      if (item.isCompleted) {
+        prev.scoreSum += item.eval.overallScore;
+        prev.scoredCount += 1;
+      }
+      map.set(key, prev);
+    });
+
+    const ranked = Array.from(map.values())
+      .sort((a, b) => {
+        if (b.count !== a.count) return b.count - a.count;
+        const avgA = a.scoredCount > 0 ? a.scoreSum / a.scoredCount : -1;
+        const avgB = b.scoredCount > 0 ? b.scoreSum / b.scoredCount : -1;
+        return avgB - avgA;
+      })
+      .slice(0, 5);
+
+    return { topInterviewedJobs: ranked, uploadedJdSummary: uploaded };
+  }, [evaluated]);
+
+  // Compact latest 6 rows for Dashboard overview (full search/filter lives on /admin/interviews)
+  const tableRows = evaluated.slice(0, 6).map((item, idx) => {
+    const s = item.session;
+    const pName = item.candidateName;
+    const initials = getAvatarInitials(pName, "UV");
+    const role = item.jobTitle;
+    const dateStr = s.created_at
+      ? new Date(s.created_at).toLocaleDateString("vi-VN")
+      : "Gần đây";
+
+    return {
+      id: s.session_id || String(idx),
+      candidateName: pName,
+      candidateInitials: initials,
+      jobTitle: role,
+      dateLabel: dateStr,
+      timestamp: item.timestamp,
+      status: item.isCompleted
+        ? ("completed" as const)
+        : ("processing" as const),
+      statusLabel: item.isCompleted ? "Hoàn thành" : "Chưa hoàn thành",
+      score: item.isCompleted ? item.eval.overallScore : null,
+      onSelect: () => {
+        saveInterviewSession(s);
+        navigate(`/admin/reports/${s.session_id}`);
+      },
+    };
+  });
+
+  const vacancyItems = jobs.slice(0, 6).map((j) => ({
+    id: j.id,
+    title: j.title,
+    company: j.company || "Doanh nghiệp Công nghệ",
+    meta: j.location || "Việt Nam",
+    actionLabel: "Chi tiết",
+    onAction: () => go("jobs"),
+  }));
+
+  // Real CSV Export for Admin
+  const handleExportCsv = () => {
+    const headers = [
+      "Session ID",
+      "Ứng viên",
+      "Vị trí",
+      "Ngày tạo",
+      "Trạng thái",
+      "Điểm AI (/100)",
+    ];
+    const csvRows = [
+      headers.join(","),
+      ...evaluated.map((item) => {
+        const isCompleted =
+          item.session.status === "completed" ||
+          item.session.current_stage === "completed";
+        const dateStr = item.session.created_at
+          ? new Date(item.session.created_at).toLocaleString("vi-VN")
+          : "";
+        return [
+          `"${item.session.session_id}"`,
+          `"${item.candidateName.replace(/"/g, '""')}"`,
+          `"${item.jobTitle.replace(/"/g, '""')}"`,
+          `"${dateStr}"`,
+          `"${isCompleted ? "Hoàn thành" : "Chưa hoàn thành"}"`,
+          item.eval.overallScore,
+        ].join(",");
+      }),
+    ];
+    const blob = new Blob(["\uFEFF" + csvRows.join("\n")], {
+      type: "text/csv;charset=utf-8;",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `prephire-report-${fromDate || "all"}-${toDate || "now"}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const hasDateFilter = Boolean(fromDate || toDate);
+
+  return (
+    <AdminAppShell page="dashboard" go={go}>
+      <PageHeader
+        eyebrow={getVietnameseDateEyebrow()}
+        title={`Chào buổi sáng, ${user?.name || "Quản trị viên"}`}
+        description="Trung tâm điều hành tuyển dụng, theo dõi lưu lượng phỏng vấn và chất lượng ứng viên."
+        action={
+          <div className="flex items-center gap-2.5">
+            <Button variant="outline" size="lg" onClick={handleExportCsv}>
+              <Download /> Xuất CSV
+            </Button>
+            <Button variant="brand" size="lg" onClick={() => go("reports")}>
+              <FileText /> Xem báo cáo
+            </Button>
+          </div>
+        }
+      />
+
+      <div className="space-y-5">
+        {/* Admin Date Range & Quick Filter Bar */}
+        <Card className="flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-white px-5 py-3.5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-zinc-800 mr-1">
+              <CalendarDays className="h-4 w-4 text-emerald-600" />
+              Khoảng thời gian
+            </span>
+            {(
+              [
+                { id: "all", label: "Tất cả" },
+                { id: "7d", label: "7 ngày qua" },
+                { id: "30d", label: "30 ngày qua" },
+              ] as const
+            ).map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => applyPreset(p.id)}
+                className={
+                  datePreset === p.id
+                    ? "h-8 rounded-full border border-zinc-900 bg-zinc-900 px-3 text-[12px] font-medium text-white cursor-pointer transition-colors"
+                    : "h-8 rounded-full border border-zinc-200 bg-white px-3 text-[12px] font-medium text-zinc-600 hover:bg-zinc-50 hover:text-zinc-950 cursor-pointer transition-colors"
+                }
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5">
+            <div className="flex items-center gap-2">
+              <label
+                htmlFor="admin-from-date"
+                className="text-[12px] font-medium text-zinc-500"
+              >
+                Từ
+              </label>
+              <input
+                id="admin-from-date"
+                type="date"
+                value={fromDate}
+                onChange={(e) => {
+                  setDatePreset("custom");
+                  setFromDate(e.target.value);
+                }}
+                className="h-8 rounded-lg border border-zinc-200 bg-white px-2.5 text-[12px] text-zinc-800 focus:border-zinc-900 focus:outline-none"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <label
+                htmlFor="admin-to-date"
+                className="text-[12px] font-medium text-zinc-500"
+              >
+                Đến
+              </label>
+              <input
+                id="admin-to-date"
+                type="date"
+                value={toDate}
+                onChange={(e) => {
+                  setDatePreset("custom");
+                  setToDate(e.target.value);
+                }}
+                className="h-8 rounded-lg border border-zinc-200 bg-white px-2.5 text-[12px] text-zinc-800 focus:border-zinc-900 focus:outline-none"
+              />
+            </div>
+
+            {hasDateFilter && (
+              <button
+                type="button"
+                onClick={() => applyPreset("all")}
+                title="Đặt lại bộ lọc ngày"
+                className="inline-flex h-8 items-center gap-1 rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 text-[12px] font-medium text-zinc-600 hover:bg-zinc-100 hover:text-zinc-950 cursor-pointer"
+              >
+                <RotateCcw className="h-3.5 w-3.5" /> Đặt lại
+              </button>
+            )}
+
+            <Badge
+              variant="secondary"
+              className="rounded-full px-2.5 py-1 text-[11px] tabular-nums"
+            >
+              {evaluated.length} / {sessions.length} phiên
+            </Badge>
+          </div>
+        </Card>
+
+        {/* Row 1: 4 Executive KPI Stat Cards */}
+        <section className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+          <StatCard
+            label="Tổng phiên phỏng vấn"
+            value={evaluated.length}
+            subtitle={`${completedCount} hoàn thành · ${Math.max(0, evaluated.length - completedCount)} chưa xong`}
+            icon={Video}
+            onClick={() => go("interviews")}
+            actionTitle="Xem danh sách phỏng vấn"
+          />
+          <StatCard
+            label="Tỷ lệ hoàn thành"
+            value={`${completionRate}%`}
+            subtitle={`${completedCount} / ${evaluated.length} phiên đã hoàn tất`}
+            badgeText={completionRate >= 70 ? "Ổn định" : undefined}
+            badgeTone="success"
+            icon={CheckCircle2}
+            onClick={() => go("interviews")}
+            actionTitle="Xem tiến độ phiên"
+          />
+          <StatCard
+            label="Ứng viên tham gia"
+            value={candidatesCount}
+            subtitle={
+              candidatesCount > 0
+                ? `TB ${(evaluated.length / candidatesCount).toFixed(1)} phiên / ứng viên`
+                : "Chưa có hồ sơ trong kỳ"
+            }
+            icon={Users}
+            onClick={() => go("candidates")}
+            actionTitle="Xem danh sách ứng viên"
+          />
+          <StatCard
+            label="Điểm AI trung bình"
+            value={avgScore}
+            subtitle={
+              scoredList.length > 0
+                ? `Cao nhất ${maxScore} · Thấp nhất ${minScore} (/100)`
+                : "Chưa có phiên hoàn thành"
+            }
+            badgeText={avgScoreMeta?.label}
+            badgeTone={avgScoreMeta?.badgeTone ?? "neutral"}
+            icon={Gauge}
+            onClick={() => go("reports")}
+            actionTitle="Xem báo cáo đánh giá"
+          />
+        </section>
+
+        {/* Row 2: Stacked Daily Volume / Score Histogram + Quality Donut */}
+        <section className="grid grid-cols-1 gap-5 lg:grid-cols-12">
+          <div className="lg:col-span-7">
+            <AdminTrafficHistogramCard
+              mode={chartMode}
+              onModeChange={setChartMode}
+              dailyData={dailyData}
+              histogramData={histogramData}
+              loading={loadingSessions}
+              onSelectDate={(iso) => {
+                setDatePreset("custom");
+                setFromDate(iso);
+                setToDate(iso);
+              }}
+              summaryStats={
+                chartMode === "daily"
+                  ? [
+                      { label: "Tổng phiên kỳ này", value: evaluated.length },
+                      {
+                        label: "Hoàn thành",
+                        value: completedCount,
+                      },
+                      {
+                        label: "Cao nhất / ngày",
+                        value:
+                          dailyData.length > 0
+                            ? Math.max(...dailyData.map((d) => d.total))
+                            : 0,
+                      },
+                    ]
+                  : [
+                      { label: "Phiên đã chấm", value: scoredList.length },
+                      { label: "Điểm TB", value: avgScore },
+                      { label: "Điểm cao nhất", value: maxScore },
+                    ]
+              }
+            />
+          </div>
+          <div className="lg:col-span-5">
+            <QualityDonutCard
+              title="Phân bổ chất lượng"
+              badgeLabel={hasDateFilter ? "Theo bộ lọc" : "Toàn thời gian"}
+              totalScored={qualityDonut.totalScored}
+              segments={qualityDonut.segments}
+              loading={loadingSessions}
+            />
+          </div>
+        </section>
+
+        {/* Row 3: Top Candidates Leaderboard + Most Interviewed Positions */}
+        <section className="grid grid-cols-1 gap-5 lg:grid-cols-12">
+          <Card className="flex h-full flex-col rounded-2xl border border-zinc-200 bg-white p-6 lg:col-span-6">
+            <SectionHeader
+              title="Ứng viên điểm cao nhất"
+              icon={Trophy}
+              iconClassName="text-emerald-600"
+              actionLabel="Tất cả ứng viên"
+              onAction={() => go("candidates")}
+            />
+
+            {topCandidates.length > 0 ? (
+              <div className="divide-y divide-zinc-100">
+                {topCandidates.map((item, idx) => {
+                  const initials = getAvatarInitials(item.candidateName, "UV");
+                  const dateStr = item.session.created_at
+                    ? new Date(item.session.created_at).toLocaleDateString(
+                        "vi-VN",
+                      )
+                    : "Gần đây";
+                  return (
+                    <div
+                      key={item.session.session_id}
+                      onClick={() => {
+                        saveInterviewSession(item.session);
+                        navigate(`/admin/reports/${item.session.session_id}`);
+                      }}
+                      className="group flex cursor-pointer items-center justify-between gap-3 py-3 first:pt-1 last:pb-1 transition-colors"
+                    >
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span className="w-5 shrink-0 text-[12px] font-bold text-zinc-400 tabular-nums">
+                          #{idx + 1}
+                        </span>
+                        <Avatar className="h-8 w-8 shrink-0">
+                          <AvatarFallback className="bg-zinc-900 text-[11px] font-semibold text-white">
+                            {initials}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0">
+                          <div className="truncate text-[13px] font-semibold text-zinc-950 group-hover:text-emerald-700 transition-colors">
+                            {item.candidateName}
+                          </div>
+                          <div className="truncate text-[12px] text-zinc-500">
+                            {item.jobTitle} · {dateStr}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <ScoreBadge
+                          score={item.eval.overallScore}
+                          mode="pill"
+                        />
+                        <ChevronRight className="h-4 w-4 text-zinc-300 group-hover:text-zinc-700 transition-colors" />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="flex min-h-[150px] flex-1 items-center justify-center rounded-xl border border-dashed border-zinc-200 bg-zinc-50/70 text-[13px] text-zinc-500">
+                Chưa có ứng viên nào hoàn thành trong khoảng thời gian này.
+              </div>
+            )}
+          </Card>
+
+          <Card className="flex h-full flex-col rounded-2xl border border-zinc-200 bg-white p-6 lg:col-span-6">
+            <SectionHeader
+              title="Vị trí được phỏng vấn nhiều nhất"
+              icon={BriefcaseBusiness}
+              iconClassName="text-emerald-600"
+              actionLabel="Tất cả vị trí"
+              onAction={() => go("jobs")}
+            />
+
+            {topInterviewedJobs.length > 0 ? (
+              <div className="divide-y divide-zinc-100">
+                {topInterviewedJobs.map((job, idx) => {
+                  const jobAvg =
+                    job.scoredCount > 0
+                      ? Math.round(job.scoreSum / job.scoredCount)
+                      : null;
+                  return (
+                    <button
+                      key={job.title}
+                      type="button"
+                      onClick={() =>
+                        navigate(
+                          `/admin/interviews?q=${encodeURIComponent(job.title)}`,
+                        )
+                      }
+                      className="group flex w-full cursor-pointer items-center justify-between gap-3 border-0 bg-transparent px-0 py-3 text-left transition-colors first:pt-1 last:pb-1"
+                    >
+                      <div className="flex min-w-0 flex-1 items-center gap-3">
+                        <span className="w-5 shrink-0 text-[12px] font-bold text-zinc-400 tabular-nums">
+                          #{idx + 1}
+                        </span>
+                        <span
+                          className="min-w-0 flex-1 truncate text-[13px] font-semibold text-zinc-950 transition-colors group-hover:text-emerald-700"
+                          title={job.title}
+                        >
+                          {job.title}
+                        </span>
+                      </div>
+
+                      <div className="flex shrink-0 items-center gap-2">
+                        <span className="whitespace-nowrap text-[12px] text-zinc-500 tabular-nums">
+                          <b className="font-semibold text-zinc-900">
+                            {job.count}
+                          </b>{" "}
+                          phiên
+                        </span>
+                        {jobAvg !== null && (
+                          <ScoreBadge
+                            score={jobAvg}
+                            mode="pill"
+                            prefix="TB "
+                          />
+                        )}
+                        <ChevronRight className="h-4 w-4 text-zinc-300 transition-colors group-hover:text-zinc-700" />
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="flex min-h-[150px] flex-1 items-center justify-center rounded-xl border border-dashed border-zinc-200 bg-zinc-50/70 text-[13px] text-zinc-500">
+                Chưa có dữ liệu vị trí tuyển dụng trong khoảng thời gian này.
+              </div>
+            )}
+
+            {uploadedJdSummary.count > 0 && (
+              <div className="mt-auto pt-3">
+                <div className="border-t border-zinc-100 pt-3">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      navigate(
+                        `/admin/interviews?q=${encodeURIComponent("JD ứng viên tự tải lên")}`,
+                      )
+                    }
+                    className="group flex w-full cursor-pointer items-center justify-between gap-2 border-0 bg-transparent p-0 text-left text-[12px] text-zinc-500 transition-colors hover:text-zinc-900"
+                  >
+                    <span className="truncate">
+                      Ngoài ra có{" "}
+                      <strong className="font-semibold text-zinc-700 tabular-nums">
+                        {uploadedJdSummary.count} phiên
+                      </strong>{" "}
+                      từ JD ứng viên tự tải lên
+                    </span>
+                    <span className="inline-flex shrink-0 items-center gap-0.5 font-medium text-zinc-500 transition-colors group-hover:text-emerald-600">
+                      Xem <ChevronRight className="h-3.5 w-3.5" />
+                    </span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </Card>
+        </section>
+
+        {/* Row 4: Clean 1-line Recent Sessions Table + Open Vacancies */}
+        <section className="grid grid-cols-1 gap-5 lg:grid-cols-12">
+          <div className="lg:col-span-8">
+            <RecentSessionsCard
+              title="Danh sách phiên phỏng vấn"
+              rows={tableRows}
+              showCandidateColumn
+              showSearch={false}
+              enableSort={false}
+              enableStatusFilter={false}
+              onViewAll={() => go("interviews")}
+              emptyMessage="Không có phiên phỏng vấn nào trong khoảng thời gian đã chọn."
+            />
+          </div>
+          <div className="lg:col-span-4">
+            <VacanciesCard
+              title="Vị trí đang mở"
+              items={vacancyItems}
+              totalCount={jobs.length}
+              onViewAll={() => go("jobs")}
+            />
+          </div>
+        </section>
+      </div>
+    </AdminAppShell>
+  );
 }
 
-export function StartInterview({ go }: { go: (p: Page) => void }) {
-  const [file, setFile] = useState<File | null>(null), [selected, setSelected] = useState<number|null>(null), [query,setQuery]=useState(''), [drag,setDrag]=useState(false), [started,setStarted]=useState(false)
-  const input = useRef<HTMLInputElement>(null)
-  const filtered = jobs.filter(j => j.title.toLowerCase().includes(query.toLowerCase()))
-  const drop = (e: React.DragEvent) => {e.preventDefault();setDrag(false);if(e.dataTransfer.files[0])setFile(e.dataTransfer.files[0])}
-  if(started) return <AppShell page="start" go={go}><div className="success-page"><div className="success-mark"><Check/></div><span className="pill"><Sparkles size={13}/> ĐÃ TIẾP NHẬN</span><h1>Thông tin đã sẵn sàng!</h1><p>AI đã nhận CV và yêu cầu cho vị trí <b>{jobs.find(j=>j.id===selected)?.title}</b>.</p><div className="progress-box"><div><span>Hồ sơ ứng viên</span><b>Hoàn tất</b></div><div className="progress"><i></i></div><div><span>Bước tiếp theo</span><b className="working">Phân tích với AI</b></div></div><button className="primary full" onClick={()=>go('analysis')}>Bắt đầu phân tích <ArrowRight size={17}/></button><button className="secondary success-back" onClick={()=>setStarted(false)}>Quay lại chỉnh sửa</button></div></AppShell>
-  return <AppShell page="start" go={go}>
-    <header className="simple-header"><div><button className="back" onClick={()=>go('dashboard')}>←</button><div><p>TẠO PHỎNG VẤN MỚI</p><h1>Chuẩn bị buổi phỏng vấn</h1></div></div><button className="icon-btn"><Bell/></button></header>
-    <div className="stepper"><div className="done"><i><Check/></i><span><b>Hồ sơ ứng viên</b><small>Tải lên CV</small></span></div><em></em><div className={file?'current':''}><i>2</i><span><b>Chọn công việc</b><small>Vị trí ứng tuyển</small></span></div><em></em><div className={selected?'current':''}><i>3</i><span><b>Xác nhận</b><small>Sẵn sàng bắt đầu</small></span></div></div>
-    <div className="create-grid"><div className="create-main">
-      <section className="form-card"><div className="card-heading"><span className="number">01</span><div><h2>Hồ sơ ứng viên</h2><p>Tải CV để AI phân tích kinh nghiệm và kỹ năng.</p></div>{file&&<span className="complete"><Check/> Hoàn tất</span>}</div>
-        {!file ? <div className={`dropzone ${drag?'drag':''}`} onDragOver={e=>{e.preventDefault();setDrag(true)}} onDragLeave={()=>setDrag(false)} onDrop={drop} onClick={()=>input.current?.click()}><input ref={input} type="file" accept=".pdf,.doc,.docx" onChange={e=>setFile(e.target.files?.[0]||null)}/><span><UploadCloud/></span><h3>Kéo & thả CV vào đây</h3><p>hoặc <b>chọn tệp từ máy tính</b></p><small>Hỗ trợ PDF, DOCX · Tối đa 10MB</small></div> : <div className="file-item"><span className="pdf"><FileText/></span><div><b>{file.name}</b><small>{(file.size/1024/1024).toFixed(1)} MB · Sẵn sàng phân tích</small></div><span className="file-ok"><Check/></span><button onClick={()=>setFile(null)}><X/></button></div>}
-      </section>
-      <section className={`form-card ${!file?'muted-card':''}`}><div className="card-heading"><span className="number">02</span><div><h2>Chọn vị trí tuyển dụng</h2><p>AI sẽ dựa trên yêu cầu công việc để tạo câu hỏi.</p></div></div>
-        <div className="job-search"><Search/><input placeholder="Tìm kiếm theo tên vị trí..." value={query} onChange={e=>setQuery(e.target.value)} disabled={!file}/></div>
-        <div className="job-list">{filtered.map(job=><button key={job.id} disabled={!file} className={`job-option ${selected===job.id?'selected':''}`} onClick={()=>setSelected(job.id)}><span className="job-icon" style={{background:job.accent}}>{job.title.split(' ').slice(0,2).map(x=>x[0]).join('')}</span><span className="job-info"><b>{job.title}</b><small>{job.department} · {job.location}</small><span>{job.skills.map(s=><i key={s}>{s}</i>)}</span></span><i className="radio">{selected===job.id&&<span/>}</i></button>)}</div>
-      </section>
-    </div><aside className="summary-card"><span className="pill"><Sparkles size={13}/> TÓM TẮT</span><h3>Buổi phỏng vấn của bạn</h3><div className="summary-row"><small>HỒ SƠ</small>{file?<div><span className="pdf tiny"><FileText/></span><p><b>{file.name}</b><small>Đã tải lên</small></p></div>:<p className="empty-value">Chưa có CV</p>}</div><div className="summary-row"><small>VỊ TRÍ</small>{selected?<div><span className="job-icon tiny-job" style={{background:jobs.find(j=>j.id===selected)?.accent}}>{jobs.find(j=>j.id===selected)?.title[0]}</span><p><b>{jobs.find(j=>j.id===selected)?.title}</b><small>{jobs.find(j=>j.id===selected)?.department}</small></p></div>:<p className="empty-value">Chưa chọn công việc</p>}</div><div className="summary-note"><Sparkles/><p><b>AI sẽ chuẩn bị gì?</b><span>Phân tích CV, đối chiếu yêu cầu và tạo 10–12 câu hỏi cá nhân hóa.</span></p></div><button className="primary full" disabled={!file||!selected} onClick={()=>setStarted(true)}>Tiếp tục với AI <ArrowRight/></button><p className="secure">🔒 Dữ liệu được mã hóa và bảo mật</p></aside></div>
-  </AppShell>
-}
-
-function AppShell({ page, go, children }: {page:Page;go:(p:Page)=>void;children:React.ReactNode}) { return <div className="app"><Sidebar page={page} go={go}/><main className="content">{children}</main></div> }
-
-export default function App(){
-  const initial = (localStorage.getItem('iv-page') as Page) || 'login'
-  const [page,setPage]=useState<Page>(initial)
-  const go=(p:Page)=>{setPage(p);localStorage.setItem('iv-page',p);window.scrollTo(0,0)}
-  useEffect(()=>{document.title = page==='login'?'Đăng nhập — Interviewly':page==='dashboard'?'Tổng quan — Interviewly':'Tạo phỏng vấn — Interviewly'},[page])
-  if(page==='login') return <Login onLogin={()=>go('dashboard')}/>
-  if(page==='start') return <StartInterview go={go}/>
-  if(page==='interviews') return <InterviewsPage go={go}/>
-  if(page==='candidates') return <CandidatesPage go={go}/>
-  if(page==='jobs') return <JobsPage go={go}/>
-  if(page==='reports') return <ReportsPage go={go}/>
-  if(page==='settings') return <SettingsPage go={go}/>
-  if(page==='analysis') return <AnalysisPage go={go}/>
-  if(page==='device') return <DeviceCheckPage go={go}/>
-  if(page==='room') return <InterviewRoom go={go}/>
-  if(page==='processing') return <ProcessingPage go={go}/>
-  if(page==='report') return <ReportPage go={go}/>
-  return <Dashboard go={go}/>
+function AdminAppShell({
+  page,
+  go,
+  children,
+}: {
+  page: Page;
+  go: (p: Page) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <AppShell role="admin" activeKey={page} onNavigate={(p) => go(p as Page)}>
+      {children}
+    </AppShell>
+  );
 }
