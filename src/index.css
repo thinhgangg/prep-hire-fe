@@ -1,0 +1,245 @@
+@import "tailwindcss";
+@import "./styles.css" layer(components);
+
+@theme inline {
+  --font-sans: "Be Vietnam Pro", system-ui, -apple-system, sans-serif;
+  --font-display: "Be Vietnam Pro", system-ui, -apple-system, sans-serif;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-brand: var(--brand);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+/* PrepHire AI Design System — Monochrome Zinc + Emerald Accent */
+:root {
+  --background: #f8f9fa;
+  --foreground: #09090b;
+  --card: #ffffff;
+  --card-foreground: #09090b;
+  --popover: #ffffff;
+  --popover-foreground: #09090b;
+  --primary: #18181b;
+  --primary-foreground: #fafafa;
+  --secondary: #f4f4f5;
+  --secondary-foreground: #18181b;
+  --muted: #f4f4f5;
+  --muted-foreground: #71717a;
+  --accent: #ecfdf5;
+  --accent-foreground: #047857;
+  --brand: #059669;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --border: #e4e4e7;
+  --input: #e4e4e7;
+  --ring: #18181b;
+  --radius: 0.75rem;
+}
+
+@layer base {
+  html {
+    overflow-y: scroll;
+    scrollbar-gutter: stable;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: #f8f9fa;
+    color: var(--foreground);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Prevent Radix UI scroll-lock from adding duplicate scrollbar compensation padding/margin */
+  body[data-scroll-locked] {
+    margin-right: 0 !important;
+    padding-right: 0 !important;
+  }
+
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Unified Design System Tokens for Legacy Page Sections */
+@layer components {
+  /* Primary buttons: Zinc-900 */
+  button.primary,
+  .hero-card > div > button,
+  .candidate-hero-actions > button:first-child {
+    background: #18181b !important;
+    color: #fafafa !important;
+    border: 1px solid #18181b !important;
+    border-radius: 10px !important;
+    box-shadow: 0 1px 2px rgba(9, 9, 11, 0.06) !important;
+    transition: background-color 0.15s ease, border-color 0.15s ease !important;
+  }
+
+  button.primary:hover,
+  .hero-card > div > button:hover,
+  .candidate-hero-actions > button:first-child:hover {
+    background: #27272a !important;
+    border-color: #27272a !important;
+  }
+
+  /* Outline buttons: crisp Zinc-200 hairline */
+  button.outline,
+  .candidate-hero-btn-outline {
+    background: #ffffff !important;
+    color: #18181b !important;
+    border: 1px solid #e4e4e7 !important;
+    border-radius: 10px !important;
+  }
+
+  button.outline:hover,
+  .candidate-hero-btn-outline:hover {
+    background: #f4f4f5 !important;
+    border-color: #d4d4d8 !important;
+  }
+
+  /* Unified Card System: pure white surface, Zinc-200 border, 16px radius on #F8F9FA canvas */
+  .hero-card,
+  .candidate-hero,
+  .white-card,
+  .candidate-card-box,
+  .data-panel,
+  .stats > div,
+  .metric-strip > div,
+  .candidate-quick > article,
+  .personal-summary > div,
+  .candidate-job-list > article,
+  .candidate-profile,
+  .candidate-profile-page,
+  .summary-card,
+  .report-overview > section,
+  .report-overview > aside,
+  .settings-layout > aside,
+  .settings-layout > section,
+  .analysis-main,
+  .success-page {
+    background: #ffffff !important;
+    border: 1px solid #e4e4e7 !important;
+    border-radius: 16px !important;
+    box-shadow: 0 1px 2px rgba(9, 9, 11, 0.02) !important;
+  }
+
+  /* Clean section vertical rhythm */
+  .hero-card,
+  .candidate-hero,
+  .stats,
+  .metric-strip,
+  .candidate-quick,
+  .personal-summary,
+  .report-overview {
+    margin-bottom: 24px !important;
+  }
+
+  .hero-card,
+  .candidate-hero {
+    color: #09090b !important;
+  }
+
+  .hero-card h2,
+  .candidate-hero h2 {
+    font-family: var(--font-display) !important;
+    color: #09090b !important;
+    letter-spacing: -0.025em !important;
+  }
+
+  .hero-card h2 em,
+  .candidate-hero h2 em {
+    color: #059669 !important;
+    font-style: normal !important;
+  }
+
+  .hero-card p,
+  .candidate-hero p {
+    color: #52525b !important;
+  }
+
+  /* Candidate Hero Score Badge on white card */
+  .candidate-score {
+    background: #fafafa !important;
+    border: 1px solid #e4e4e7 !important;
+    border-radius: 14px !important;
+    color: #09090b !important;
+  }
+
+  .candidate-score b {
+    color: #09090b !important;
+  }
+
+  .candidate-score small {
+    color: #71717a !important;
+  }
+
+  .candidate-score p {
+    color: #047857 !important;
+  }
+
+  /* Login aside: refined dark Zinc-950 */
+  .login-aside {
+    background: #09090b !important;
+    border-left: 1px solid #27272a;
+  }
+
+  .login-aside .orb {
+    display: none !important;
+  }
+
+  /* Pills: subtle Emerald badge */
+  .pill {
+    background: #ecfdf5 !important;
+    color: #047857 !important;
+    border: 1px solid #d1fae5 !important;
+    font-weight: 600 !important;
+  }
+
+  /* Competency progress bar: crisp Emerald-600 */
+  .candidate-competency-bar {
+    background: #f4f4f5 !important;
+  }
+
+  .candidate-competency-bar i {
+    background: #059669 !important;
+  }
+
+  /* Tabular numerals for scores and metrics */
+  .candidate-score b,
+  .personal-summary b,
+  .stats h3,
+  .metric-strip b,
+  .candidate-quick b {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Search inputs matching Zinc hairline */
+  .search-box,
+  .candidate-job-search,
+  .job-search {
+    background: #ffffff !important;
+    border: 1px solid #e4e4e7 !important;
+    border-radius: 10px !important;
+  }
+}

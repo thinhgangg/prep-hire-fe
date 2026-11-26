@@ -7,11 +7,16 @@ import {
   loadInterviewSession,
   saveInterviewSession,
   getInterviewSessionById,
+  getAllSessions,
+  getCachedAllSessions,
+  getSessionCandidateName,
+  getSessionJobTitle,
+  INTERVIEW_SESSION_STORAGE_KEY,
   type CvAnalysis,
   type InterviewSession,
   type InterviewTurn,
 } from "./services/interviewApi";
-import { fetchRealJobs, DbJob } from "./services/jobApi";
+import { fetchRealJobs, getCachedRealJobs, DbJob } from "./services/jobApi";
 import { useEffect, useRef, useState } from "react";
 import {
   Activity,
@@ -31,24 +36,28 @@ import {
   Clock3,
   Download,
   Eye,
+  EyeOff,
   FileText,
   Filter,
   Headphones,
+  Lightbulb,
   LogOut,
   Mail,
   MapPin,
+  MessageSquare,
   Mic,
   MicOff,
   MoreHorizontal,
   Plus,
+  ScanFace,
   Search,
   Settings,
   ShieldCheck,
-  Sparkles,
   Square,
   Star,
   Target,
   TrendingUp,
+  UserX,
   Users,
   Video,
   VideoOff,
@@ -56,7 +65,59 @@ import {
   Wifi,
   X,
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { BrandLogo } from "@/components/BrandLogo";
+import { AppLayout } from "@/components/layout/AppLayout";
+import { HelpCenterContent } from "@/components/layout/HelpCenterContent";
+import { PageHeader } from "@/components/layout/PageHeader";
+import { KpiCard } from "@/components/dashboard/KpiCard";
+import { AdminTrafficHistogramCard } from "@/components/dashboard/AdminTrafficHistogramCard";
+import { QualityDonutCard } from "@/components/dashboard/QualityDonutCard";
+import { RecentSessionsCard } from "@/components/dashboard/RecentSessionsCard";
+import {
+  buildQualityDonutData,
+  buildScoreHistogramData,
+  evaluateSessions,
+  fillMissingDates,
+} from "@/utils/dashboardMetrics";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Pagination } from "@/components/ui/pagination";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 import { useAuth } from "./auth/AuthContext";
 import type { Page } from "./App";
 import {
@@ -87,458 +148,583 @@ function Shell({
   wide = false,
 }: Props & { children: React.ReactNode; wide?: boolean }) {
   return (
-    <div className={`app sub-page ${wide ? "wide" : ""}`}>
-      <SubSidebar page={page} go={go} />
-      <main className="content sub-content">{children}</main>
-    </div>
+    <AppLayout
+      role="admin"
+      activeKey={page || "dashboard"}
+      onNavigate={(p) => go(p as Page)}
+      wide={wide}
+    >
+      {children}
+    </AppLayout>
   );
 }
-
-function SubSidebar({ page, go }: Props) {
-  const [open, setOpen] = useState(false);
-  const items: [Page, string, React.ReactNode][] = [
-    ["dashboard", "Tổng quan", <BarChart3 />],
-    ["interviews", "Phỏng vấn", <Sparkles />],
-    ["candidates", "Ứng viên", <Users />],
-    ["jobs", "Công việc", <BriefcaseBusiness />],
-    ["reports", "Báo cáo", <FileText />],
-    ["settings", "Cài đặt", <Settings />],
-  ];
-  const move = (id: Page) => {
-    go(id);
-    setOpen(false);
-  };
-  const { user, logout } = useAuth();
-  const navigate = useNavigate();
-  const handleLogout = () => {
-    logout();
-    navigate("/login");
-  };
-  return (
-    <>
-      <button className="mobile-menu" onClick={() => setOpen(true)}>
-        <MoreHorizontal />
-      </button>
-      {open && <div className="scrim" onClick={() => setOpen(false)} />}
-      <aside className={`sidebar unified-sidebar ${open ? "open" : ""}`}>
-        <div className="side-logo">
-          <button className="unified-logo" onClick={() => move("dashboard")}>
-            <i>
-              <Sparkles />
-            </i>
-            <span>Interviewly</span>
-          </button>
-          <button onClick={() => setOpen(false)}>
-            <X />
-          </button>
-        </div>
-        <nav>
-          <small>KHÔNG GIAN LÀM VIỆC</small>
-          {items.slice(0, 5).map(([id, label, icon]) => (
-            <button
-              key={id}
-              className={
-                page === id ||
-                (id === "interviews" &&
-                  [
-                    "start",
-                    "analysis",
-                    "device",
-                    "room",
-                    "processing",
-                  ].includes(page || "")) ||
-                (id === "reports" && page === "report")
-                  ? "active"
-                  : ""
-              }
-              onClick={() => move(id)}
-            >
-              {icon}
-              {label}
-              {id === "interviews" && <span>12</span>}
-            </button>
-          ))}
-          <small>QUẢN LÝ</small>
-          <button
-            className={page === "settings" ? "active" : ""}
-            onClick={() => move("settings")}
-          >
-            <Settings /> Cài đặt
-          </button>
-          <button>
-            <CircleHelp /> Trung tâm hỗ trợ
-          </button>
-        </nav>
-        <div className="upgrade">
-          <div className="spark">
-            <Sparkles size={18} />
-          </div>
-          <b>Mở khóa sức mạnh AI</b>
-          <p>Nâng cấp để phỏng vấn không giới hạn.</p>
-          <button>Tìm hiểu thêm</button>
-        </div>
-        <div className="profile">
-          <div className="avatar">
-            {user?.name
-              ? user.name
-                  .split(" ")
-                  .map((x) => x[0])
-                  .join("")
-                  .slice(-2)
-              : "HN"}
-          </div>
-          <div>
-            <b>{user?.name || "Hoàng Nam"}</b>
-            <small>Quản trị viên</small>
-          </div>
-          <button
-            onClick={handleLogout}
-            title="Đăng xuất"
-            style={{
-              border: 0,
-              background: "none",
-              cursor: "pointer",
-              padding: "6px",
-              color: "#6b7280",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <LogOut size={16} />
-          </button>
-        </div>
-      </aside>
-    </>
-  );
-}
-
-function PageHeader({
-  eyebrow,
-  title,
-  desc,
-  action,
-}: {
-  eyebrow?: string;
-  title: string;
-  desc: string;
-  action?: React.ReactNode;
-}) {
-  return (
-    <header className="page-header">
-      <div>
-        {eyebrow && <small>{eyebrow}</small>}
-        <h1>{title}</h1>
-        <p>{desc}</p>
-      </div>
-      <div className="page-actions">
-        <button className="icon-btn">
-          <Bell />
-        </button>
-        {action}
-      </div>
-    </header>
-  );
-}
-
-const people = [
-  {
-    name: "Nguyễn Minh Anh",
-    initial: "MA",
-    role: "Senior Frontend Developer",
-    date: "28/09/2026 · 14:30",
-    status: "Hoàn thành",
-    score: 86,
-    color: "sage",
-  },
-  {
-    name: "Trần Gia Bảo",
-    initial: "GB",
-    role: "Backend Developer",
-    date: "27/09/2026 · 10:00",
-    status: "Hoàn thành",
-    score: 79,
-    color: "lavender",
-  },
-  {
-    name: "Lê Thu Hà",
-    initial: "TH",
-    role: "Product Designer",
-    date: "27/09/2026 · 09:15",
-    status: "Đang xử lý",
-    score: null,
-    color: "peach",
-  },
-  {
-    name: "Phạm Quốc Huy",
-    initial: "QH",
-    role: "Senior Frontend Developer",
-    date: "26/09/2026 · 16:00",
-    status: "Đã lên lịch",
-    score: null,
-    color: "blueish",
-  },
-  {
-    name: "Vũ Khánh Linh",
-    initial: "KL",
-    role: "Data Analyst",
-    date: "25/09/2026 · 11:30",
-    status: "Chưa hoàn thành",
-    score: 42,
-    color: "rose",
-  },
-];
 
 export function InterviewsPage({ go }: Props) {
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [filter, setFilter] = useState("Tất cả");
-  const shown = people.filter(
-    (p) => filter === "Tất cả" || p.status === filter,
+  const [search, setSearch] = useState("");
+  const currentPage = Math.max(
+    1,
+    parseInt(searchParams.get("page") || "1", 10) || 1,
   );
+  const setCurrentPage = (page: number) => {
+    const next = new URLSearchParams(searchParams);
+    if (page <= 1) next.delete("page");
+    else next.set("page", String(page));
+    setSearchParams(next, { replace: false });
+  };
+  const pageSize = 8;
+  const [sessions, setSessions] = useState<InterviewSession[]>(() =>
+    getCachedAllSessions(),
+  );
+  const [loading, setLoading] = useState(
+    () => getCachedAllSessions().length === 0,
+  );
+
+  useEffect(() => {
+    getAllSessions(100)
+      .then((res) => {
+        if (Array.isArray(res)) {
+          setSessions(res);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const records = sessions.map((s, i) => {
+    const evalData = computeAiEvaluation(s);
+    const dateStr = s.created_at
+      ? new Date(s.created_at).toLocaleString("vi-VN", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : "Gần đây";
+    const candidateName = getSessionCandidateName(s);
+    const initial =
+      candidateName
+        .split(" ")
+        .filter(Boolean)
+        .slice(-2)
+        .map((w: string) => w[0])
+        .join("")
+        .toUpperCase() || "UV";
+    const role = getSessionJobTitle(s);
+    const isCompleted =
+      s.status === "completed" || s.current_stage === "completed";
+    const status = isCompleted ? "Hoàn thành" : "Chưa hoàn thành";
+    return {
+      id: s.session_id || `INT-${i + 1}`,
+      name: candidateName,
+      initial,
+      role,
+      date: dateStr,
+      status,
+      score: evalData.overallScore > 0 ? evalData.overallScore : null,
+      rawSession: s,
+    };
+  });
+
+  const filtered = records.filter((p) => {
+    const matchFilter = filter === "Tất cả" || p.status === filter;
+    const matchSearch =
+      !search ||
+      p.name.toLowerCase().includes(search.toLowerCase()) ||
+      p.role.toLowerCase().includes(search.toLowerCase()) ||
+      p.id.toLowerCase().includes(search.toLowerCase());
+    return matchFilter && matchSearch;
+  });
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginated = filtered.slice(
+    (safePage - 1) * pageSize,
+    safePage * pageSize,
+  );
+
+  const completedCount = records.filter(
+    (r) => r.status === "Hoàn thành",
+  ).length;
+  const processingCount = records.filter(
+    (r) => r.status === "Chưa hoàn thành",
+  ).length;
+  const avgScore = (() => {
+    const valid = records.map((r) => r.score).filter((x): x is number => !!x);
+    return valid.length > 0
+      ? Math.round(valid.reduce((a, b) => a + b, 0) / valid.length)
+      : "--";
+  })();
+
   return (
     <Shell page="interviews" go={go}>
       <PageHeader
         title="Phỏng vấn"
-        desc="Quản lý và theo dõi tất cả phiên phỏng vấn."
+        description="Quản lý và theo dõi tất cả phiên phỏng vấn ứng viên."
         action={
-          <button className="primary" onClick={() => go("start")}>
-            <Plus /> Tạo phỏng vấn
-          </button>
+          <Button variant="outline" size="lg" onClick={() => go("reports")}>
+            <FileText /> Xem báo cáo
+          </Button>
         }
       />
-      <div className="metric-strip">
-        <div>
-          <span>
-            <Video />
-          </span>
-          <p>
-            <small>TỔNG PHIÊN</small>
-            <b>42</b>
-          </p>
-          <em>+8 tháng này</em>
-        </div>
-        <div>
-          <span>
-            <CheckCircle2 />
-          </span>
-          <p>
-            <small>HOÀN THÀNH</small>
-            <b>34</b>
-          </p>
-          <em>81%</em>
-        </div>
-        <div>
-          <span>
-            <Clock3 />
-          </span>
-          <p>
-            <small>ĐÃ LÊN LỊCH</small>
-            <b>06</b>
-          </p>
-          <em>Tuần này</em>
-        </div>
-        <div>
-          <span>
-            <Activity />
-          </span>
-          <p>
-            <small>ĐANG XỬ LÝ</small>
-            <b>02</b>
-          </p>
-          <em>Khoảng 2 phút</em>
-        </div>
-      </div>
-      <section className="data-panel">
-        <div className="data-toolbar">
-          <div className="search-box">
-            <Search />
-            <input placeholder="Tìm ứng viên, vị trí..." />
-          </div>
-          <div className="tabs">
-            {["Tất cả", "Hoàn thành", "Đã lên lịch", "Đang xử lý"].map((t) => (
-              <button
-                key={t}
-                className={filter === t ? "active" : ""}
-                onClick={() => setFilter(t)}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
-          <button className="outline">
-            <Filter /> Bộ lọc
-          </button>
-        </div>
-        <div className="records">
-          <div className="record-head">
-            <span>ỨNG VIÊN</span>
-            <span>VỊ TRÍ</span>
-            <span>THỜI GIAN</span>
-            <span>TRẠNG THÁI</span>
-            <span>ĐIỂM AI</span>
-            <span></span>
-          </div>
-          {shown.map((p, i) => (
-            <div className="record" key={p.name}>
-              <div className="person">
-                <i className={p.color}>{p.initial}</i>
-                <p>
-                  <b>{p.name}</b>
-                  <small>{`INT-2026-${1042 - i}`}</small>
-                </p>
-              </div>
-              <div>
-                <b>{p.role}</b>
-                <small>Product & Engineering</small>
-              </div>
-              <div>
-                <span>{p.date}</span>
-              </div>
-              <div>
-                <span className={`tag-status s${i}`}>{p.status}</span>
-              </div>
-              <div>
-                {p.score ? (
-                  <strong className={p.score > 80 ? "good" : ""}>
-                    {p.score}
-                    <small>/100</small>
-                  </strong>
-                ) : (
-                  <span>—</span>
-                )}
-              </div>
-              <button className="dots" onClick={() => p.score && go("report")}>
-                <MoreHorizontal />
-              </button>
+
+      <div className="space-y-5">
+        <section className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+          <KpiCard
+            label="Tổng phiên"
+            value={records.length}
+            badgeText="Toàn bộ"
+            icon={Video}
+          />
+          <KpiCard
+            label="Hoàn thành"
+            value={completedCount}
+            badgeText={
+              records.length > 0
+                ? `${Math.round((completedCount / records.length) * 100)}%`
+                : "0%"
+            }
+            badgeTone="success"
+            icon={CheckCircle2}
+          />
+          <KpiCard
+            label="Chưa hoàn thành"
+            value={processingCount}
+            badgeText="Đang bỏ dở"
+            badgeTone={processingCount > 0 ? "warning" : "neutral"}
+            icon={Clock3}
+          />
+          <KpiCard
+            label="Điểm trung bình"
+            value={avgScore}
+            badgeText="/100 điểm"
+            badgeTone={
+              typeof avgScore === "number" && avgScore >= 75
+                ? "success"
+                : "neutral"
+            }
+            icon={BarChart3}
+          />
+        </section>
+
+        <Card className="rounded-2xl border border-zinc-200 bg-white p-6">
+          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="relative w-full sm:max-w-xs">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+              <Input
+                placeholder="Tìm ứng viên, vị trí..."
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="h-9 rounded-full pl-9"
+              />
             </div>
-          ))}
-        </div>
-        <div className="pagination">
-          <span>Hiển thị 1–5 trong 42 kết quả</span>
-          <div>
-            <button>‹</button>
-            <button className="active">1</button>
-            <button>2</button>
-            <button>3</button>
-            <button>›</button>
+
+            <Tabs
+              value={filter}
+              onValueChange={(v) => {
+                setFilter(v);
+                setCurrentPage(1);
+              }}
+            >
+              <TabsList>
+                <TabsTrigger value="Tất cả">Tất cả</TabsTrigger>
+                <TabsTrigger value="Hoàn thành">Hoàn thành</TabsTrigger>
+                <TabsTrigger value="Chưa hoàn thành">
+                  Chưa hoàn thành
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
           </div>
-        </div>
-      </section>
+
+          {loading ? (
+            <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50/70 px-6 py-12 text-center text-sm text-zinc-500">
+              Đang tải danh sách phiên phỏng vấn...
+            </div>
+          ) : paginated.length > 0 ? (
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>Ứng viên</TableHead>
+                  <TableHead>Vị trí</TableHead>
+                  <TableHead>Thời gian</TableHead>
+                  <TableHead>Trạng thái</TableHead>
+                  <TableHead>Điểm AI</TableHead>
+                  <TableHead className="text-right">Thao tác</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {paginated.map((p, i) => (
+                  <TableRow
+                    key={p.id || i}
+                    className="cursor-pointer"
+                    onClick={() => {
+                      saveInterviewSession(p.rawSession);
+                      navigate(`/admin/reports/${p.id}`, {
+                        state: {
+                          returnTo:
+                            safePage > 1
+                              ? `/admin/interviews?page=${safePage}`
+                              : "/admin/interviews",
+                        },
+                      });
+                    }}
+                  >
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <Avatar className="h-8 w-8">
+                          <AvatarFallback className="bg-zinc-900 text-xs text-white">
+                            {p.initial}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <div className="font-semibold text-zinc-950">
+                            {p.name}
+                          </div>
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell className="font-medium text-zinc-800">
+                      {p.role}
+                    </TableCell>
+                    <TableCell className="text-xs text-zinc-500 whitespace-nowrap">
+                      {p.date}
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant={
+                          p.status === "Hoàn thành" ? "success" : "warning"
+                        }
+                        className="rounded-full"
+                      >
+                        {p.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="font-semibold tabular-nums">
+                      {p.score ? (
+                        <span>
+                          {p.score}
+                          <span className="text-xs font-normal text-zinc-400">
+                            /100
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="text-zinc-400">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="rounded-full"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          saveInterviewSession(p.rawSession);
+                          navigate(`/admin/reports/${p.id}`, {
+                            state: {
+                              returnTo:
+                                safePage > 1
+                                  ? `/admin/interviews?page=${safePage}`
+                                  : "/admin/interviews",
+                            },
+                          });
+                        }}
+                      >
+                        Xem báo cáo <ArrowRight className="h-3.5 w-3.5" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : (
+            <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50/70 px-6 py-12 text-center text-sm text-zinc-500">
+              {records.length === 0
+                ? "Chưa có phiên phỏng vấn nào được ghi nhận."
+                : "Không có phiên phỏng vấn nào phù hợp với bộ lọc hiện tại."}
+            </div>
+          )}
+
+          {filtered.length > 0 && (
+            <Pagination
+              currentPage={safePage}
+              totalPages={totalPages}
+              totalItems={filtered.length}
+              pageSize={pageSize}
+              itemLabel="phiên phỏng vấn"
+              onPageChange={(p) => {
+                setCurrentPage(p);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+              className="mt-4 rounded-none border-0 border-t border-zinc-100 bg-transparent px-0 pb-0 pt-4"
+            />
+          )}
+        </Card>
+      </div>
     </Shell>
   );
 }
 
 export function CandidatesPage({ go }: Props) {
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [search, setSearch] = useState("");
+  const currentPage = Math.max(
+    1,
+    parseInt(searchParams.get("page") || "1", 10) || 1,
+  );
+  const setCurrentPage = (page: number) => {
+    const next = new URLSearchParams(searchParams);
+    if (page <= 1) next.delete("page");
+    else next.set("page", String(page));
+    setSearchParams(next, { replace: false });
+  };
+  const pageSize = 9;
+  const [candidates, setCandidates] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    getAllSessions(100)
+      .then((res) => {
+        if (Array.isArray(res) && res.length > 0) {
+          const map = new Map<string, any>();
+          res.forEach((s) => {
+            const name = getSessionCandidateName(s);
+            const key =
+              s.user_id != null ? `uid-${s.user_id}` : name.toLowerCase();
+            if (!map.has(key)) {
+              const ep = (s as any).cv_profile_json || {};
+              const rawSkills = [
+                ...(ep.cv_skills || []).map((sk: any) =>
+                  typeof sk === "string" ? sk : sk?.name || "",
+                ),
+                ...(ep.technical_skills || []),
+              ];
+              const skills = rawSkills.filter(Boolean).slice(0, 4);
+              const evalData = computeAiEvaluation(s);
+              map.set(key, {
+                key,
+                name,
+                initial:
+                  name
+                    .split(" ")
+                    .filter(Boolean)
+                    .slice(-2)
+                    .map((w: string) => w[0])
+                    .join("")
+                    .toUpperCase() || "UV",
+                role: getSessionJobTitle(s),
+                skills: skills.length > 0 ? skills : ["Chuyên môn"],
+                email:
+                  ep.email ||
+                  (s.user_id != null
+                    ? `user${s.user_id}@prephire.vn`
+                    : `${name.toLowerCase().replace(/\s+/g, ".")}@prephire.vn`),
+                status:
+                  s.status === "completed" || s.current_stage === "completed"
+                    ? "Hoàn thành"
+                    : "Chưa hoàn thành",
+                score: evalData.overallScore,
+                sessionCount: 1,
+                session: s,
+              });
+            } else {
+              const existing = map.get(key);
+              existing.sessionCount += 1;
+            }
+          });
+          setCandidates(Array.from(map.values()));
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const filtered = candidates.filter(
+    (c) =>
+      !search ||
+      c.name.toLowerCase().includes(search.toLowerCase()) ||
+      c.role.toLowerCase().includes(search.toLowerCase()) ||
+      c.email.toLowerCase().includes(search.toLowerCase()),
+  );
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginated = filtered.slice(
+    (safePage - 1) * pageSize,
+    safePage * pageSize,
+  );
+
   return (
     <Shell page="candidates" go={go}>
       <PageHeader
         title="Ứng viên"
-        desc="Theo dõi hồ sơ và tiến trình đánh giá ứng viên."
-        action={
-          <button className="primary" onClick={() => go("start")}>
-            <Plus /> Thêm ứng viên
-          </button>
-        }
+        description="Theo dõi hồ sơ và tiến trình đánh giá ứng viên."
       />
-      <div className="candidate-toolbar">
-        <div className="search-box">
-          <Search />
-          <input placeholder="Tìm theo tên, email hoặc kỹ năng..." />
+
+      <div className="mb-5 flex items-center justify-between gap-4">
+        <div className="relative w-full max-w-sm">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+          <Input
+            placeholder="Tìm theo tên, email hoặc vị trí..."
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setCurrentPage(1);
+            }}
+            className="h-10 rounded-full bg-white pl-9"
+          />
         </div>
-        <button className="outline">
-          <Filter /> Tất cả vị trí
-        </button>
-        <button className="outline">
-          <ChevronDown /> Trạng thái
-        </button>
+        <span className="text-xs font-medium text-zinc-500 tabular-nums">
+          {filtered.length} hồ sơ
+        </span>
       </div>
-      <div className="candidate-grid">
-        {people.slice(0, 4).map((p, i) => (
-          <article className="candidate-profile" key={p.name}>
-            <button className="dots">
-              <MoreHorizontal />
-            </button>
-            <i className={`profile-avatar ${p.color}`}>{p.initial}</i>
-            <h3>{p.name}</h3>
-            <p>{p.role}</p>
-            <div className="skill-chips">
-              {[
-                ["React", "TypeScript", "Figma"],
-                ["Node.js", "AWS", "SQL"],
-                ["UX/UI", "Research", "Figma"],
-                ["React", "Next.js", "GraphQL"],
-              ][i].map((x) => (
-                <span key={x}>{x}</span>
-              ))}
-            </div>
-            <div className="profile-meta">
-              <span>
-                <Mail />{" "}
-                {p.name
-                  .toLowerCase()
-                  .normalize("NFD")
-                  .replace(/[\u0300-\u036f]/g, "")
-                  .replaceAll(" ", ".")}
-                @email.com
-              </span>
-              <span>
-                <CalendarDays /> Ứng tuyển {i + 2} ngày trước
-              </span>
-            </div>
-            <div className="profile-foot">
-              <span className={`tag-status s${i}`}>{p.status}</span>
-              <button onClick={() => go("report")}>
-                Xem hồ sơ <ArrowRight />
-              </button>
-            </div>
-          </article>
-        ))}
-      </div>
+
+      {loading ? (
+        <Card className="rounded-2xl border border-zinc-200 bg-white p-12 text-center text-sm text-zinc-500">
+          Đang tải danh sách ứng viên từ...
+        </Card>
+      ) : paginated.length > 0 ? (
+        <>
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
+            {paginated.map((p, i) => (
+              <Card
+                key={p.key || p.name + i}
+                className="flex flex-col justify-between rounded-2xl border border-zinc-200 bg-white p-5 transition-colors hover:border-zinc-300"
+              >
+                <div>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <Avatar className="h-11 w-11">
+                        <AvatarFallback className="bg-zinc-900 text-sm font-semibold text-white">
+                          {p.initial}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0">
+                        <h3 className="m-0 truncate text-[15px] font-semibold text-zinc-950">
+                          {p.name}
+                        </h3>
+                        <p className="m-0 mt-0.5 truncate text-[13px] text-zinc-500">
+                          {p.role}
+                        </p>
+                      </div>
+                    </div>
+                    {p.score > 0 && (
+                      <Badge
+                        variant="success"
+                        className="rounded-full tabular-nums"
+                      >
+                        {p.score}/100
+                      </Badge>
+                    )}
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-1.5">
+                    {p.skills.map((x: string) => (
+                      <Badge
+                        key={x}
+                        variant="secondary"
+                        className="text-[11px]"
+                      >
+                        {x}
+                      </Badge>
+                    ))}
+                  </div>
+
+                  <div className="mt-4 flex items-center justify-between gap-2 text-xs text-zinc-500">
+                    <span className="inline-flex min-w-0 items-center gap-1.5">
+                      <Mail className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
+                      <span className="truncate">{p.email}</span>
+                    </span>
+                    <span className="shrink-0 text-[11px] font-medium text-zinc-400">
+                      {p.sessionCount} phiên
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mt-5 flex items-center justify-between border-t border-zinc-100 pt-4">
+                  <Badge
+                    variant={p.status === "Hoàn thành" ? "success" : "warning"}
+                    className="rounded-full"
+                  >
+                    {p.status}
+                  </Badge>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="rounded-full"
+                    onClick={() => {
+                      saveInterviewSession(p.session);
+                      navigate(`/admin/reports/${p.session.session_id}`, {
+                        state: {
+                          returnTo:
+                            safePage > 1
+                              ? `/admin/candidates?page=${safePage}`
+                              : "/admin/candidates",
+                        },
+                      });
+                    }}
+                  >
+                    Xem báo cáo <ArrowRight className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </Card>
+            ))}
+          </div>
+
+          <Pagination
+            currentPage={safePage}
+            totalPages={totalPages}
+            totalItems={filtered.length}
+            pageSize={pageSize}
+            itemLabel="ứng viên"
+            onPageChange={(p) => {
+              setCurrentPage(p);
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
+          />
+        </>
+      ) : (
+        <Card className="flex flex-col items-center justify-center rounded-2xl border border-zinc-200 bg-white px-6 py-14 text-center">
+          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full border border-zinc-200 bg-zinc-50 text-zinc-400">
+            <Users className="h-5 w-5" />
+          </div>
+          <h3 className="m-0 text-[15px] font-semibold text-zinc-900">
+            Chưa có hồ sơ ứng viên
+          </h3>
+          <p className="m-0 mt-1.5 max-w-md text-[13px] text-zinc-500">
+            Hồ sơ ứng viên sẽ tự động hiển thị sau khi ứng viên tải lên CV và
+            tham gia phỏng vấn.
+          </p>
+        </Card>
+      )}
     </Shell>
   );
 }
 
-const jobCards = [
-  {
-    title: "Senior Frontend Developer",
-    dept: "Product & Engineering",
-    place: "Hà Nội · Hybrid",
-    count: 18,
-    days: 12,
-    color: "#5c5cc9",
-    skills: ["React", "TypeScript", "Next.js"],
-  },
-  {
-    title: "Backend Developer",
-    dept: "Engineering",
-    place: "TP. Hồ Chí Minh",
-    count: 14,
-    days: 18,
-    color: "#287d5a",
-    skills: ["Node.js", "PostgreSQL", "AWS"],
-  },
-  {
-    title: "Product Designer",
-    dept: "Product & Design",
-    place: "Remote",
-    count: 9,
-    days: 7,
-    color: "#c87548",
-    skills: ["Figma", "UX Research", "UI Design"],
-  },
-  {
-    title: "Data Analyst",
-    dept: "Data & Insights",
-    place: "Hà Nội",
-    count: 11,
-    days: 21,
-    color: "#4c729b",
-    skills: ["SQL", "Python", "Tableau"],
-  },
-];
 export function JobsPage({ go }: Props) {
-  const [jobList, setJobList] = useState<DbJob[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [jobList, setJobList] = useState<DbJob[]>(() => getCachedRealJobs());
+  const [loading, setLoading] = useState(
+    () => getCachedRealJobs().length === 0,
+  );
   const [query, setQuery] = useState("");
+  const currentPage = Math.max(
+    1,
+    parseInt(searchParams.get("page") || "1", 10) || 1,
+  );
+  const setCurrentPage = (page: number) => {
+    const next = new URLSearchParams(searchParams);
+    if (page <= 1) next.delete("page");
+    else next.set("page", String(page));
+    setSearchParams(next, { replace: false });
+  };
+  const pageSize = 9;
 
   useEffect(() => {
     fetchRealJobs().then((res) => {
@@ -554,341 +740,613 @@ export function JobsPage({ go }: Props) {
       j.location.toLowerCase().includes(query.toLowerCase()),
   );
 
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginated = filtered.slice(
+    (safePage - 1) * pageSize,
+    safePage * pageSize,
+  );
+
   return (
     <Shell page="jobs" go={go}>
       <PageHeader
         title="Công việc"
-        desc={`Danh sách ${jobList.length} vị trí tuyển dụng thực tế đang có trong kho dữ liệu.`}
-        action={
-          <button className="primary" onClick={() => go("start")}>
-            <Plus /> Tạo phỏng vấn mới
-          </button>
-        }
+        description={`Danh sách vị trí tuyển dụng thực tế đang có`}
       />
-      <div style={{ marginBottom: "20px" }}>
-        <div className="job-search" style={{ maxWidth: "480px" }}>
-          <Search />
-          <input
+
+      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative w-full max-w-md">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+          <Input
             placeholder="Tìm kiếm công việc, công ty hoặc địa điểm..."
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setCurrentPage(1);
+            }}
+            className="h-10 rounded-full bg-white pl-9"
           />
         </div>
       </div>
+
       {loading ? (
-        <div style={{ padding: "40px", textAlign: "center", color: "#6b7280" }}>
-          Đang nạp danh sách công việc từ kho dữ liệu...
-        </div>
+        <Card className="rounded-2xl border border-zinc-200 bg-white p-12 text-center text-sm text-zinc-500">
+          Đang tải danh sách công việc...
+        </Card>
+      ) : paginated.length === 0 ? (
+        <Card className="rounded-2xl border border-zinc-200 bg-white p-12 text-center text-sm text-zinc-500">
+          Không tìm thấy vị trí tuyển dụng nào phù hợp.
+        </Card>
       ) : (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
-            gap: "16px",
-          }}
-        >
-          {filtered.map((j) => (
-            <div
-              key={j.id}
-              className="white-card"
-              style={{
-                padding: "18px",
-                display: "flex",
-                flexDirection: "column",
-                justifyContent: "space-between",
-                borderRadius: "12px",
-                border: "1px solid #e5e7eb",
-              }}
-            >
-              <div>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "12px",
-                    marginBottom: "10px",
-                  }}
+        <>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {paginated.map((j) => {
+              const initials =
+                (j.company || j.title)
+                  .split(" ")
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .map((x) => x[0])
+                  .join("")
+                  .toUpperCase() || "JB";
+              const cleanSkills = (j.skills || []).filter(
+                (s) => s && s !== "Dữ liệu thực",
+              );
+
+              return (
+                <Card
+                  key={j.id}
+                  className="flex flex-col justify-between rounded-2xl border border-zinc-200 bg-white p-5 transition-colors hover:border-zinc-300"
                 >
-                  <span
-                    className="job-icon"
-                    style={{
-                      background: j.accent,
-                      width: "42px",
-                      height: "42px",
-                      borderRadius: "8px",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      color: "#fff",
-                      fontWeight: "bold",
-                    }}
-                  >
-                    {j.title
-                      .split(" ")
-                      .slice(0, 2)
-                      .map((x) => x[0])
-                      .join("")}
-                  </span>
                   <div>
-                    <h4 style={{ margin: 0, fontSize: "15px" }}>{j.title}</h4>
-                    <small style={{ color: "#6b7280" }}>
-                      {j.company} · {j.location}
-                    </small>
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-zinc-900 text-xs font-semibold text-white">
+                        {initials}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h4 className="m-0 line-clamp-2 text-[14px] font-semibold leading-snug text-zinc-950">
+                          {j.title}
+                        </h4>
+                        <p className="m-0 mt-1 truncate text-xs text-zinc-500">
+                          {j.company}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-3.5 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+                      <span className="inline-flex items-center gap-1">
+                        <MapPin className="h-3.5 w-3.5 text-zinc-400" />
+                        {j.location}
+                      </span>
+                      {j.level && (
+                        <Badge
+                          variant="outline"
+                          className="text-[11px] uppercase"
+                        >
+                          {j.level}
+                        </Badge>
+                      )}
+                    </div>
+
+                    {cleanSkills.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        {cleanSkills.slice(0, 4).map((s) => (
+                          <Badge
+                            key={s}
+                            variant="secondary"
+                            className="text-[11px] font-normal"
+                          >
+                            {s}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    gap: "8px",
-                    flexWrap: "wrap",
-                    margin: "12px 0",
-                  }}
-                >
-                  {j.skills.map((s) => (
-                    <span
-                      key={s}
-                      style={{
-                        background: "#f3f4f6",
-                        padding: "3px 8px",
-                        borderRadius: "4px",
-                        fontSize: "12px",
-                        color: "#374151",
-                      }}
+
+                  <div className="mt-4 flex items-center justify-between border-t border-zinc-100 pt-3 text-xs text-zinc-400">
+                    <Badge
+                      variant="success"
+                      className="rounded-full text-[11px]"
                     >
-                      {s}
-                    </span>
-                  ))}
-                </div>
-              </div>
-              <button
-                className="outline"
-                style={{ marginTop: "12px", width: "100%", cursor: "pointer" }}
-                onClick={() => go("start")}
-              >
-                Phỏng vấn vị trí này
-              </button>
-            </div>
-          ))}
-        </div>
+                      Đang mở
+                    </Badge>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+
+          <Pagination
+            currentPage={safePage}
+            totalPages={totalPages}
+            totalItems={filtered.length}
+            pageSize={pageSize}
+            itemLabel="vị trí tuyển dụng"
+            onPageChange={(p) => {
+              setCurrentPage(p);
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
+          />
+        </>
       )}
     </Shell>
   );
 }
 
 export function ReportsPage({ go }: Props) {
+  const navigate = useNavigate();
+  const [sessions, setSessions] = useState<InterviewSession[]>(() =>
+    getCachedAllSessions(),
+  );
+  const [loading, setLoading] = useState<boolean>(
+    () => getCachedAllSessions().length === 0,
+  );
+  const [chartMode, setChartMode] = useState<"daily" | "scores">("scores");
+
+  useEffect(() => {
+    getAllSessions(100)
+      .then((res) => {
+        if (Array.isArray(res)) {
+          setSessions(res);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const evaluated = evaluateSessions(sessions, (s) => computeAiEvaluation(s));
+
+  const validScores = evaluated
+    .map((x) => x.eval.overallScore)
+    .filter((s) => s > 0);
+  const avgScore =
+    validScores.length > 0
+      ? Math.round(
+          validScores.reduce((acc, curr) => acc + curr, 0) / validScores.length,
+        )
+      : "--";
+  const maxScore = validScores.length > 0 ? Math.max(...validScores) : "--";
+
+  const dailyData = fillMissingDates(evaluated);
+  const histogramData = buildScoreHistogramData(evaluated);
+  const qualityDonut = buildQualityDonutData(evaluated);
+
+  const tableRows = evaluated.map((item, i) => {
+    const pName = item.candidateName;
+    const initial =
+      pName
+        .split(" ")
+        .filter(Boolean)
+        .slice(-2)
+        .map((w: string) => w[0])
+        .join("")
+        .toUpperCase() || "UV";
+    const role = item.jobTitle;
+    const score = item.eval.overallScore;
+
+    return {
+      id: item.session.session_id || String(i),
+      candidateName: pName,
+      candidateInitials: initial,
+      subMeta: item.session.session_id
+        ? `#${item.session.session_id.slice(0, 8)}`
+        : undefined,
+      jobTitle: role,
+      dateLabel: item.session.created_at
+        ? new Date(item.session.created_at).toLocaleDateString("vi-VN")
+        : "Gần đây",
+      timestamp: item.timestamp,
+      score: score > 0 ? score : null,
+      status:
+        score >= 80
+          ? ("completed" as const)
+          : score >= 60
+            ? ("processing" as const)
+            : ("low" as const),
+      statusLabel:
+        score >= 80
+          ? "Phù hợp cao"
+          : score >= 60
+            ? "Cần xem xét"
+            : score > 0
+              ? "Chưa phù hợp"
+              : "Chưa hoàn thành",
+      onSelect: () => {
+        saveInterviewSession(item.session);
+        navigate(`/admin/reports/${item.session.session_id}`);
+      },
+    };
+  });
+
   return (
     <Shell page="reports" go={go}>
       <PageHeader
         title="Báo cáo"
-        desc="Tổng hợp chất lượng ứng viên và hiệu quả tuyển dụng."
+        description="Tổng hợp chất lượng ứng viên và hiệu quả tuyển dụng."
         action={
-          <button className="outline">
+          <Button variant="outline" size="lg" onClick={() => window.print()}>
             <Download /> Xuất báo cáo
-          </button>
+          </Button>
         }
       />
-      <div className="report-overview">
-        <section>
-          <span className="pill">
-            <TrendingUp /> HIỆU SUẤT TUYỂN DỤNG
-          </span>
-          <h2>
-            Chất lượng ứng viên
-            <br />
-            tăng <em>8.4%</em>
-          </h2>
-          <p>Dựa trên 42 buổi phỏng vấn trong 30 ngày qua.</p>
-          <div className="line-chart">
-            <svg viewBox="0 0 500 120" preserveAspectRatio="none">
-              <defs>
-                <linearGradient id="area" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0" stopColor="#528166" stopOpacity=".3" />
-                  <stop offset="1" stopColor="#528166" stopOpacity="0" />
-                </linearGradient>
-              </defs>
-              <path
-                d="M0,92 C50,88 75,72 112,78 S180,58 220,62 S280,35 330,45 S410,22 500,15 L500,120 L0,120Z"
-                fill="url(#area)"
-              />
-              <path
-                d="M0,92 C50,88 75,72 112,78 S180,58 220,62 S280,35 330,45 S410,22 500,15"
-                fill="none"
-                stroke="#426f57"
-                strokeWidth="3"
-              />
-            </svg>
-            <div>
-              <span>01/09</span>
-              <span>08/09</span>
-              <span>15/09</span>
-              <span>22/09</span>
-              <span>29/09</span>
-            </div>
+
+      <div className="space-y-5">
+        <section className="grid grid-cols-1 gap-5 lg:grid-cols-12">
+          <div className="lg:col-span-7">
+            <AdminTrafficHistogramCard
+              mode={chartMode}
+              onModeChange={setChartMode}
+              dailyData={dailyData}
+              histogramData={histogramData}
+              loading={loading}
+              summaryStats={[
+                { label: "Tổng phiên", value: sessions.length },
+                { label: "Điểm TB", value: avgScore },
+                { label: "Cao nhất", value: maxScore },
+              ]}
+            />
+          </div>
+          <div className="lg:col-span-5">
+            <QualityDonutCard
+              title="Phân bổ đánh giá"
+              badgeLabel="Thực tế"
+              totalScored={qualityDonut.totalScored}
+              segments={qualityDonut.segments}
+              loading={loading}
+            />
           </div>
         </section>
-        <aside>
-          <h3>Phân bổ đánh giá</h3>
-          <div className="donut">
-            <div>
-              <b>42</b>
-              <small>ỨNG VIÊN</small>
-            </div>
-          </div>
-          <ul>
-            <li>
-              <i className="excellent"></i>
-              <span>Phù hợp cao</span>
-              <b>38%</b>
-            </li>
-            <li>
-              <i className="normal"></i>
-              <span>Cần xem xét</span>
-              <b>45%</b>
-            </li>
-            <li>
-              <i className="low"></i>
-              <span>Chưa phù hợp</span>
-              <b>17%</b>
-            </li>
-          </ul>
-        </aside>
+
+        <RecentSessionsCard
+          title="Danh sách báo cáo chi tiết"
+          rows={tableRows}
+          showCandidateColumn
+          enableSort
+          searchPlaceholder="Tìm báo cáo theo ứng viên, vị trí..."
+          emptyMessage="Chưa có báo cáo phiên phỏng vấn nào."
+          pageSize={8}
+          itemLabel="báo cáo"
+        />
       </div>
-      <section className="data-panel report-list">
-        <div className="panel-title">
-          <div>
-            <h2>Báo cáo gần đây</h2>
-            <p>Đánh giá chi tiết từ AI</p>
-          </div>
-          <button className="text-btn">
-            Xem tất cả <ArrowRight />
-          </button>
-        </div>
-        {people.slice(0, 3).map((p, i) => (
-          <div className="report-row" key={p.name}>
-            <div className="person">
-              <i className={p.color}>{p.initial}</i>
-              <p>
-                <b>{p.name}</b>
-                <small>{p.role}</small>
-              </p>
-            </div>
-            <div className="mini-scores">
-              <span>
-                <small>CHUYÊN MÔN</small>
-                <b>{[88, 82, 76][i]}</b>
-              </span>
-              <span>
-                <small>GIAO TIẾP</small>
-                <b>{[81, 75, 84][i]}</b>
-              </span>
-              <span>
-                <small>PHÙ HỢP</small>
-                <b>{[90, 78, 80][i]}</b>
-              </span>
-            </div>
-            <strong>
-              {p.score || 82}
-              <small>/100</small>
-            </strong>
-            <button className="outline" onClick={() => go("report")}>
-              Xem báo cáo
-            </button>
-          </div>
-        ))}
-      </section>
     </Shell>
   );
 }
 
-export function SettingsPage({ go }: Props) {
+const NOTIFICATION_ITEMS = [
+  {
+    key: "email_new_report",
+    title: "Cho phép thông báo qua email khi có báo cáo mới",
+    desc: "Nhận email tự động ngay khi hoàn tất phân tích phiên phỏng vấn.",
+    defaultValue: true,
+  },
+  {
+    key: "weekly_digest",
+    title: "Tổng hợp báo cáo định kỳ hàng tuần",
+    desc: "Gửi bản tóm tắt tiến độ và chỉ số năng lực vào cuối mỗi tuần.",
+    defaultValue: true,
+  },
+  {
+    key: "auto_save_history",
+    title: "Tự động lưu lịch sử câu hỏi và câu trả lời",
+    desc: "Lưu trữ đầy đủ transcript và điểm đánh giá theo từng phiên.",
+    defaultValue: true,
+  },
+  {
+    key: "require_device_check",
+    title: "Yêu cầu kiểm tra thiết bị trước khi vào phòng phỏng vấn",
+    desc: "Luôn mở bước kiểm tra camera, microphone và mạng trước khi bắt đầu.",
+    defaultValue: false,
+  },
+] as const;
+
+export function SettingsFormContent({
+  roleLabel = "Quản trị viên",
+}: {
+  roleLabel?: string;
+}) {
+  const { user, updateProfile } = useAuth();
   const [tab, setTab] = useState("Hồ sơ");
+  const [name, setName] = useState(user?.name || "");
+  const [email, setEmail] = useState(user?.email || "");
+  const [phone, setPhone] = useState(user?.phone || "");
+  const [currentRole, setCurrentRole] = useState(user?.current_role || "");
+  const [location, setLocation] = useState(user?.location || "");
+  const [saving, setSaving] = useState(false);
+  const [successMsg, setSuccessMsg] = useState("");
+  const [errorMsg, setErrorMsg] = useState("");
+
+  const prefsStorageKey = `prephire_notif_prefs_${user?.username || "default"}`;
+  const [notifPrefs, setNotifPrefs] = useState<Record<string, boolean>>(() => {
+    const defaults: Record<string, boolean> = {};
+    NOTIFICATION_ITEMS.forEach((item) => {
+      defaults[item.key] = item.defaultValue;
+    });
+    try {
+      const saved = localStorage.getItem(prefsStorageKey);
+      if (saved) return { ...defaults, ...JSON.parse(saved) };
+    } catch {}
+    return defaults;
+  });
+
+  useEffect(() => {
+    if (user) {
+      setName(user.name || "");
+      setEmail(user.email || "");
+      setPhone(user.phone || "");
+      setCurrentRole(user.current_role || "");
+      setLocation(user.location || "");
+    }
+  }, [user]);
+
+  const initials =
+    (name || user?.name || "UV")
+      .split(" ")
+      .map((w) => w[0])
+      .filter(Boolean)
+      .slice(-2)
+      .join("")
+      .toUpperCase() || "UV";
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setSuccessMsg("");
+    setErrorMsg("");
+    try {
+      await updateProfile({
+        name: name.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        current_role: currentRole.trim(),
+        location: location.trim(),
+      });
+      setSuccessMsg("Cập nhật thành công.");
+      setTimeout(() => setSuccessMsg(""), 4000);
+    } catch (err: any) {
+      setErrorMsg(err?.message || "Không thể lưu thông tin. Vui lòng thử lại.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleTogglePref = (key: string, next: boolean) => {
+    setNotifPrefs((prev) => {
+      const updated = { ...prev, [key]: next };
+      try {
+        localStorage.setItem(prefsStorageKey, JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
+
+  const handleSavePrefs = () => {
+    try {
+      localStorage.setItem(prefsStorageKey, JSON.stringify(notifPrefs));
+    } catch {}
+    setSuccessMsg("Đã lưu tùy chọn thông báo.");
+    setErrorMsg("");
+    setTimeout(() => setSuccessMsg(""), 3000);
+  };
+
   return (
-    <Shell page="settings" go={go}>
+    <>
       <PageHeader
         title="Cài đặt"
-        desc="Quản lý tài khoản và tùy chỉnh không gian làm việc."
+        description="Quản lý thông tin tài khoản và tùy chỉnh không gian làm việc."
       />
-      <div className="settings-layout">
-        <aside>
-          {[
-            "Hồ sơ",
-            "Không gian làm việc",
-            "Thông báo",
-            "Tích hợp",
-            "Bảo mật",
-          ].map((t) => (
-            <button
-              className={tab === t ? "active" : ""}
-              onClick={() => setTab(t)}
-              key={t}
-            >
-              {t}
-            </button>
-          ))}
-        </aside>
-        <section className="settings-card">
-          <div>
-            <h2>{tab}</h2>
-            <p>Cập nhật thông tin và thiết lập {tab.toLowerCase()} của bạn.</p>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+        <Card className="h-fit rounded-2xl border border-zinc-200 bg-white p-3 lg:col-span-3">
+          <div className="flex flex-col gap-1">
+            {["Hồ sơ", "Thông báo", "Bảo mật"].map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => {
+                  setTab(t);
+                  setSuccessMsg("");
+                  setErrorMsg("");
+                }}
+                className={
+                  tab === t
+                    ? "flex h-10 w-full items-center rounded-lg border-0 bg-zinc-100 px-3 text-left text-sm font-semibold text-zinc-950 cursor-pointer"
+                    : "flex h-10 w-full items-center rounded-lg border-0 bg-transparent px-3 text-left text-sm font-medium text-zinc-600 hover:bg-zinc-50 hover:text-zinc-950 cursor-pointer"
+                }
+              >
+                {t}
+              </button>
+            ))}
           </div>
+        </Card>
+
+        <Card className="rounded-2xl border border-zinc-200 bg-white p-6 lg:col-span-9">
+          <div className="border-b border-zinc-100 pb-4">
+            <h2 className="m-0 text-lg font-semibold text-zinc-950">{tab}</h2>
+            <p className="m-0 mt-1 text-sm text-zinc-500">
+              Cập nhật thông tin và thiết lập {tab.toLowerCase()} của bạn.
+            </p>
+          </div>
+
+          {successMsg && (
+            <Alert variant="success" className="mt-4">
+              <Check className="h-4 w-4" />
+              <AlertDescription>{successMsg}</AlertDescription>
+            </Alert>
+          )}
+          {errorMsg && (
+            <Alert variant="destructive" className="mt-4">
+              <X className="h-4 w-4" />
+              <AlertDescription>{errorMsg}</AlertDescription>
+            </Alert>
+          )}
+
           {tab === "Hồ sơ" ? (
-            <>
-              <div className="photo-row">
-                <div className="avatar big">HN</div>
+            <form onSubmit={handleSaveProfile} className="mt-5 space-y-5">
+              <div className="flex items-center gap-4">
+                <Avatar className="h-14 w-14">
+                  <AvatarFallback className="bg-zinc-900 text-base font-semibold text-white">
+                    {initials}
+                  </AvatarFallback>
+                </Avatar>
                 <div>
-                  <button className="outline">Thay đổi ảnh</button>
-                  <p>JPG hoặc PNG, tối đa 2MB.</p>
+                  <div className="text-sm font-semibold text-zinc-950">
+                    {name || user?.name || roleLabel}
+                  </div>
+                  <div className="text-xs text-zinc-500">
+                    {email || user?.email || ""}
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-zinc-400">
+                    Tài khoản:{" "}
+                    <b className="text-zinc-600">{user?.username || "—"}</b>
+                  </div>
                 </div>
               </div>
-              <div className="form-grid">
-                <label>
-                  Họ và tên
-                  <input defaultValue="Hoàng Nam" />
-                </label>
-                <label>
-                  Chức danh
-                  <input defaultValue="Talent Lead" />
-                </label>
-                <label>
-                  Email công việc
-                  <input defaultValue="nam.hoang@interviewly.vn" />
-                </label>
-                <label>
-                  Số điện thoại
-                  <input defaultValue="+84 912 345 678" />
-                </label>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="set-name">Họ và tên</Label>
+                  <Input
+                    id="set-name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Nhập họ và tên"
+                    required
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="set-email">Email</Label>
+                  <Input
+                    id="set-email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="example@prephire.vn"
+                    required
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="set-phone">Số điện thoại</Label>
+                  <Input
+                    id="set-phone"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="+84 912 345 678"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="set-role">Vị trí mong muốn</Label>
+                  <Input
+                    id="set-role"
+                    value={currentRole}
+                    onChange={(e) => setCurrentRole(e.target.value)}
+                    placeholder={
+                      roleLabel === "Quản trị viên"
+                        ? "VD: Quản trị viên tuyển dụng"
+                        : "VD: Frontend Developer"
+                    }
+                  />
+                </div>
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label htmlFor="set-location">Khu vực / Địa chỉ</Label>
+                  <Input
+                    id="set-location"
+                    value={location}
+                    onChange={(e) => setLocation(e.target.value)}
+                    placeholder="VD: TP. Hồ Chí Minh, Việt Nam"
+                  />
+                </div>
               </div>
-              <label className="full-label">
-                Giới thiệu
-                <textarea defaultValue="Talent Acquisition Lead với hơn 6 năm kinh nghiệm xây dựng đội ngũ sản phẩm và công nghệ." />
-              </label>
-            </>
+
+              <div className="flex justify-end border-t border-zinc-100 pt-5">
+                <Button type="submit" disabled={saving}>
+                  {saving ? "Đang lưu..." : "Lưu thay đổi"}
+                </Button>
+              </div>
+            </form>
+          ) : tab === "Thông báo" ? (
+            <div className="mt-5">
+              <div className="divide-y divide-zinc-100">
+                {NOTIFICATION_ITEMS.map((item) => {
+                  const checked = Boolean(notifPrefs[item.key]);
+                  return (
+                    <div
+                      key={item.key}
+                      className="flex items-center justify-between gap-4 py-4"
+                    >
+                      <div className="min-w-0 pr-2">
+                        <label
+                          htmlFor={`notif-${item.key}`}
+                          className="block cursor-pointer text-sm font-medium text-zinc-900"
+                        >
+                          {item.title}
+                        </label>
+                        <div className="mt-0.5 text-xs text-zinc-500">
+                          {item.desc}
+                        </div>
+                      </div>
+                      <Switch
+                        id={`notif-${item.key}`}
+                        aria-label={item.title}
+                        checked={checked}
+                        onCheckedChange={(next) =>
+                          handleTogglePref(item.key, next)
+                        }
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="mt-6 flex justify-end border-t border-zinc-100 pt-5">
+                <Button type="button" onClick={handleSavePrefs}>
+                  Lưu thay đổi
+                </Button>
+              </div>
+            </div>
           ) : (
-            <div className="setting-options">
-              {[
-                "Cho phép thông báo qua email",
-                "Nhận báo cáo hàng tuần",
-                "Tự động lưu bản ghi phỏng vấn",
-                "Bật xác thực hai lớp",
-              ].map((x, i) => (
-                <label key={x}>
-                  <span>
-                    <b>{x}</b>
-                    <small>
-                      Thiết lập này áp dụng cho toàn bộ không gian làm việc.
-                    </small>
-                  </span>
-                  <input type="checkbox" defaultChecked={i < 2} />
-                  <i></i>
-                </label>
-              ))}
+            <div className="mt-5 space-y-4">
+              <div className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-4">
+                <div className="text-sm font-semibold text-zinc-950">
+                  Bảo mật dữ liệu phỏng vấn
+                </div>
+                <p className="m-0 mt-1 text-xs leading-relaxed text-zinc-500">
+                  Mọi phiên phỏng vấn, bản ghi giọng nói và dữ liệu hướng nhìn
+                  MediaPipe được lưu trữ gắn liền với tài khoản đã xác thực JWT.
+                </p>
+              </div>
+              <div className="flex items-center justify-between rounded-xl border border-zinc-200 p-4">
+                <div>
+                  <div className="text-sm font-medium text-zinc-900">
+                    Trạng thái xác thực
+                  </div>
+                  <div className="text-xs text-zinc-500">
+                    Đang đăng nhập bằng vai trò{" "}
+                    <b className="text-zinc-800">{roleLabel}</b>
+                  </div>
+                </div>
+                <Badge variant="success" className="rounded-full">
+                  Đang hoạt động
+                </Badge>
+              </div>
             </div>
           )}
-          <div className="settings-save">
-            <button className="primary">Lưu thay đổi</button>
-          </div>
-        </section>
+        </Card>
       </div>
+    </>
+  );
+}
+
+export function SettingsPage({ go }: Props) {
+  return (
+    <Shell page="settings" go={go}>
+      <SettingsFormContent roleLabel="Quản trị viên" />
+    </Shell>
+  );
+}
+
+export function HelpCenterPage({ go }: Props) {
+  return (
+    <Shell page="help" go={go}>
+      <HelpCenterContent />
     </Shell>
   );
 }
@@ -912,9 +1370,9 @@ function CvAnalysisPanel({ analysis }: { analysis: CvAnalysis }) {
     <section className="cv-analysis-result">
       <div className="cv-result-heading">
         <div>
-          <span className="pill">
-            <Sparkles /> KẾT QUẢ PHÂN TÍCH CV
-          </span>
+          <Badge variant="success" className="mb-2">
+            <FileText className="h-3.5 w-3.5" /> KẾT QUẢ PHÂN TÍCH CV
+          </Badge>
           <h2>Mức độ phù hợp với {analysis.job_context.title}</h2>
           <p>
             {review?.summary ||
@@ -1081,25 +1539,23 @@ export function AnalysisPage({ go }: Props) {
   const done = progress === 100;
   return (
     <Shell page="analysis" go={go}>
-      <div className="flow-header">
-        <button onClick={() => go("start")}>
-          <ArrowLeft />
-        </button>
-        <div>
-          <small>
-            PHỎNG VẤN #
-            {session?.session_id.slice(0, 8).toUpperCase() || "CHƯA TẠO"}
-          </small>
-          <h1>AI đang chuẩn bị buổi phỏng vấn</h1>
-        </div>
-        <span className="private">
-          <ShieldCheck /> Dữ liệu được bảo mật
-        </span>
-      </div>
+      <PageHeader
+        eyebrow={`PHỎNG VẤN #${session?.session_id.slice(0, 8).toUpperCase() || "CHƯA TẠO"}`}
+        title="Đang chuẩn bị buổi phỏng vấn"
+        description="Hệ thống đang đối chiếu CV với yêu cầu vị trí tuyển dụng."
+        backButton={{ onClick: () => go("start"), label: "Quay lại" }}
+        showNotifications={false}
+        action={
+          <Badge variant="outline" className="px-3 py-1.5 text-xs">
+            <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" /> Dữ liệu
+            được bảo mật
+          </Badge>
+        }
+      />
       <div className="analysis-layout">
         <section className="analysis-main">
           <div className={`ai-orb ${done ? "done" : ""}`}>
-            <Sparkles />
+            <FileText />
           </div>
           <h2>
             {done
@@ -1563,10 +2019,7 @@ export function DeviceCheckPage({ go }: Props) {
     <div className="meet-page">
       <header className="meet-header">
         <button className="sub-logo" onClick={() => go("dashboard")}>
-          <i>
-            <Sparkles />
-          </i>
-          Interviewly
+          <BrandLogo size="sm" />
         </button>
       </header>
 
@@ -1669,44 +2122,71 @@ export function DeviceCheckPage({ go }: Props) {
           </div>
 
           {/* Device Selection Dropdowns */}
-          <div className="meet-pickers">
-            <div className="meet-picker-item">
-              <Camera size={15} style={{ color: "#059669", flex: "none" }} />
-              <select
-                value={selectedVideoId}
-                onChange={(e) => handleVideoDeviceChange(e.target.value)}
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="flex items-center gap-2">
+              <Camera className="h-4 w-4 shrink-0 text-emerald-600" />
+              <Select
+                value={selectedVideoId || "__default__"}
+                onValueChange={(val) =>
+                  handleVideoDeviceChange(val === "__default__" ? "" : val)
+                }
               >
-                {videoDevices.length > 0 ? (
-                  videoDevices.map((d) => (
-                    <option key={d.deviceId} value={d.deviceId}>
-                      {d.label || `Camera (${d.deviceId.slice(0, 6)}...)`}
-                    </option>
-                  ))
-                ) : (
-                  <option value="">
-                    {activeCameraName || "Webcam mặc định"}
-                  </option>
-                )}
-              </select>
+                <SelectTrigger className="h-9 flex-1 rounded-xl text-[12px]">
+                  <SelectValue
+                    placeholder={activeCameraName || "Webcam mặc định"}
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {videoDevices.length > 0 ? (
+                    videoDevices.map((d, idx) => (
+                      <SelectItem
+                        key={d.deviceId || `cam-${idx}`}
+                        value={d.deviceId || `__cam_${idx}`}
+                      >
+                        {d.label ||
+                          `Camera (${(d.deviceId || String(idx)).slice(0, 6)}...)`}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <SelectItem value="__default__">
+                      {activeCameraName || "Webcam mặc định"}
+                    </SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
             </div>
-            <div className="meet-picker-item">
-              <Mic size={15} style={{ color: "#059669", flex: "none" }} />
-              <select
-                value={selectedAudioId}
-                onChange={(e) => handleAudioDeviceChange(e.target.value)}
+
+            <div className="flex items-center gap-2">
+              <Mic className="h-4 w-4 shrink-0 text-emerald-600" />
+              <Select
+                value={selectedAudioId || "__default__"}
+                onValueChange={(val) =>
+                  handleAudioDeviceChange(val === "__default__" ? "" : val)
+                }
               >
-                {audioDevices.length > 0 ? (
-                  audioDevices.map((d) => (
-                    <option key={d.deviceId} value={d.deviceId}>
-                      {d.label || `Microphone (${d.deviceId.slice(0, 6)}...)`}
-                    </option>
-                  ))
-                ) : (
-                  <option value="">
-                    {activeMicName || "Microphone mặc định"}
-                  </option>
-                )}
-              </select>
+                <SelectTrigger className="h-9 flex-1 rounded-xl text-[12px]">
+                  <SelectValue
+                    placeholder={activeMicName || "Microphone mặc định"}
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {audioDevices.length > 0 ? (
+                    audioDevices.map((d, idx) => (
+                      <SelectItem
+                        key={d.deviceId || `mic-${idx}`}
+                        value={d.deviceId || `__mic_${idx}`}
+                      >
+                        {d.label ||
+                          `Microphone (${(d.deviceId || String(idx)).slice(0, 6)}...)`}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <SelectItem value="__default__">
+                      {activeMicName || "Microphone mặc định"}
+                    </SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </div>
@@ -2681,15 +3161,15 @@ export function InterviewRoom({ go }: Props) {
               width: 56,
               height: 56,
               borderRadius: "50%",
-              background: "rgba(99,102,241,0.15)",
-              color: "#818cf8",
+              background: "#ecfdf5",
+              color: "#059669",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               margin: "0 auto 16px",
             }}
           >
-            <Sparkles size={28} />
+            <Video size={26} />
           </div>
           <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 10 }}>
             Chưa có phiên phỏng vấn mới
@@ -2732,10 +3212,7 @@ export function InterviewRoom({ go }: Props) {
       <header className="room-header">
         <div className="room-header-left">
           <button className="sub-logo" onClick={() => go("dashboard")}>
-            <i>
-              <Sparkles size={16} />
-            </i>
-            <span>Interviewly</span>
+            <BrandLogo size="sm" />
           </button>
           <div className="room-header-divider" />
           <div className="room-job-badge" title={jobTitle}>
@@ -3193,16 +3670,13 @@ export function ProcessingPage({ go }: Props) {
     <div className="processing-page">
       <header>
         <button className="sub-logo" onClick={() => go("dashboard")}>
-          <i>
-            <Sparkles />
-          </i>
-          Interviewly
+          <BrandLogo size="sm" />
         </button>
       </header>
       <main>
         <div className="process-orbit">
           <div>
-            <Sparkles />
+            <Activity />
           </div>
           <i></i>
           <i></i>
@@ -3331,9 +3805,18 @@ function ScoreBar({ label, value }: { label: string; value: number }) {
   );
 }
 export function ReportPage({ go }: Props) {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const returnTo = (location.state as { returnTo?: string } | null)?.returnTo;
   return (
     <Shell page="report" go={go} wide>
-      <LiveInterviewReport onBack={() => go("reports")} />
+      <div className="candidate-shared-report">
+        <ReportContent
+          sessionId={id}
+          onBack={() => (returnTo ? navigate(returnTo) : go("reports"))}
+        />
+      </div>
     </Shell>
   );
 }
@@ -3565,22 +4048,26 @@ export function computeAiEvaluation(
     });
   }
 
-  // Retrieve candidate & job context dynamically
-  let candidateName = sessionStorage.getItem("selected_cv_name") || "";
-  let jobTitle = sessionStorage.getItem("selected_job_title") || "";
+  // Retrieve candidate & job context dynamically (prioritize real DB session data!)
+  let candidateName = session ? getSessionCandidateName(session) : "";
+  let jobTitle = session ? getSessionJobTitle(session) : "";
 
-  try {
-    const analysis = loadCvAnalysis();
-    if (!jobTitle && analysis?.job_context?.title) {
-      jobTitle = analysis.job_context.title;
-    }
-    if (!candidateName && analysis?.extracted_profile) {
-      candidateName = "Ứng viên";
-    }
-  } catch {}
+  if (!session) {
+    candidateName = sessionStorage.getItem("selected_cv_name") || "";
+    jobTitle = sessionStorage.getItem("selected_job_title") || "";
+    try {
+      const analysis = loadCvAnalysis();
+      if (!jobTitle && analysis?.job_context?.title) {
+        jobTitle = analysis.job_context.title;
+      }
+      if (!candidateName && analysis?.extracted_profile) {
+        candidateName = "Ứng viên";
+      }
+    } catch {}
+  }
 
-  if (!candidateName) candidateName = "Nguyễn Minh Anh";
-  if (!jobTitle) jobTitle = "Senior Fullstack Engineer";
+  if (!candidateName) candidateName = "Ứng viên";
+  if (!jobTitle) jobTitle = "Vị trí phỏng vấn";
 
   // Standard competency signal weights matching prep-hire-ai's InterviewEvidenceAggregator
   const COMPETENCY_SIGNALS: Record<string, Record<string, number>> = {
@@ -3878,21 +4365,17 @@ function LiveInterviewReport({ onBack }: { onBack: () => void }) {
   return (
     <>
       <div className="report-header">
-        <button className="back" onClick={onBack}>
-          <ArrowLeft />
-        </button>
         <div>
-          <small>KẾT QUẢ PHỎNG VẤN</small>
           <h1>
             {session?.status === "completed"
               ? "Phỏng vấn đã hoàn tất"
               : "Kết quả hiện tại"}
           </h1>
-          <p>
-            {answered.length} / {session?.max_questions || 0} câu đã trả lời •
-            Đánh giá năng lực tự động bằng AI
-          </p>
         </div>
+        <p>
+          {answered.length} / {session?.max_questions || 0} câu đã trả lời •
+          Đánh giá năng lực tự động bằng AI
+        </p>
       </div>
       <div className="report-tabs">
         {(
@@ -3981,7 +4464,7 @@ function AnswerHistory({ turns }: { turns: InterviewTurn[] }) {
         </div>
         <div className="evaluation">
           <h4>
-            <Sparkles /> 7 TIÊU CHÍ ĐÁNH GIÁ CHUYÊN SÂU
+            <BarChart3 /> 7 TIÊU CHÍ ĐÁNH GIÁ CHUYÊN SÂU
           </h4>
           <div>
             {Object.keys(scores).length ? (
@@ -4016,79 +4499,98 @@ export function ReportContent({
   const [session, setSession] = useState<InterviewSession | null>(
     () => propSession || loadInterviewSession(sessionId),
   );
+  const [loadingSession, setLoadingSession] = useState<boolean>(
+    () => !propSession && Boolean(sessionId),
+  );
 
   useEffect(() => {
     if (propSession) {
       setSession(propSession);
+      setLoadingSession(false);
       return;
     }
-    if (sessionId && sessionId !== "1042" && sessionId !== "latest") {
-      getInterviewSessionById(sessionId).then((dbSession) => {
-        if (dbSession) setSession(dbSession);
-      });
+    let cancelled = false;
+    if (sessionId && sessionId !== "latest") {
+      setLoadingSession(true);
+      getInterviewSessionById(sessionId)
+        .then((dbSession) => {
+          if (!cancelled && dbSession) setSession(dbSession);
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (!cancelled) setLoadingSession(false);
+        });
+    } else if (sessionId === "latest") {
+      setLoadingSession(true);
+      getAllSessions(1)
+        .then((list) => {
+          if (!cancelled && Array.isArray(list) && list.length > 0) {
+            setSession(list[0]);
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (!cancelled) setLoadingSession(false);
+        });
+    } else {
+      setLoadingSession(false);
     }
+    return () => {
+      cancelled = true;
+    };
   }, [sessionId, propSession]);
+
+  if (loadingSession && !session) {
+    return (
+      <Card className="rounded-2xl border border-zinc-200 bg-white p-12 text-center text-sm text-zinc-500">
+        Đang tải dữ liệu báo cáo phỏng vấn...
+      </Card>
+    );
+  }
 
   const evalData = computeAiEvaluation(session);
 
   return (
     <>
-      <div className="report-header">
-        {!candidateView && (
-          <button className="back" onClick={onBack}>
-            <ArrowLeft />
-          </button>
-        )}
-        <div>
-          {candidateView ? (
-            <>
-              <h1>Kết quả của tôi</h1>
-              <p>
-                {evalData.candidateName ? `${evalData.candidateName} • ` : ""}
-                {evalData.jobTitle} • Đánh giá năng lực AI
-              </p>
-            </>
-          ) : (
-            <>
-              <small>BÁO CÁO PHỎNG VẤN</small>
-              <h1>{evalData.candidateName}</h1>
-              <p>{evalData.jobTitle} • Đánh giá năng lực AI</p>
-            </>
-          )}
-        </div>
-        <div>
-          <button className="outline">
-            <ArrowDownToLine /> Tải PDF
-          </button>
-          {!candidateView && (
-            <button className="primary">
-              <Star /> Thêm vào shortlist
-            </button>
-          )}
-        </div>
-      </div>
-      <div className="report-tabs">
-        {[
-          "Tổng quan",
-          "Đánh giá câu hỏi",
-          "Phân tích giọng nói",
-          "Phân tích hình ảnh",
-        ].map((t) => (
-          <button
-            className={tab === t ? "active" : ""}
-            key={t}
-            onClick={() => setTab(t)}
-          >
-            {t}
-          </button>
-        ))}
+      <PageHeader
+        title={candidateView ? "Kết quả của tôi" : evalData.candidateName}
+        description={
+          candidateView
+            ? `${evalData.candidateName ? `${evalData.candidateName} · ` : ""}${evalData.jobTitle}`
+            : `${evalData.jobTitle}`
+        }
+        showNotifications={false}
+        action={
+          <div className="flex items-center gap-2.5">
+            <Button variant="outline" size="lg" onClick={() => window.print()}>
+              <ArrowDownToLine /> Tải PDF
+            </Button>
+            {!candidateView && (
+              <Button size="lg">
+                <Star /> Thêm vào shortlist
+              </Button>
+            )}
+          </div>
+        }
+      />
+
+      <div className="mb-6">
+        <Tabs value={tab} onValueChange={setTab}>
+          <TabsList className="h-10 bg-white border border-zinc-200 p-1">
+            {["Tổng quan", "Đánh giá câu hỏi", "Phân tích hình ảnh"].map(
+              (t) => (
+                <TabsTrigger key={t} value={t} className="px-4">
+                  {t}
+                </TabsTrigger>
+              ),
+            )}
+          </TabsList>
+        </Tabs>
       </div>
       {tab === "Tổng quan" ? (
         <Overview session={session} />
       ) : tab === "Đánh giá câu hỏi" ? (
         <QuestionReview session={session} candidateView={candidateView} />
-      ) : tab === "Phân tích giọng nói" ? (
-        <AudioReport />
       ) : (
         <VideoReport sessionId={session?.session_id || sessionId} />
       )}
@@ -4098,7 +4600,11 @@ export function ReportContent({
 
 function Overview({ session }: { session?: InterviewSession | null }) {
   const currentSession = session || loadInterviewSession();
+  const isCurrentActiveSession =
+    !currentSession?.session_id ||
+    currentSession.session_id === sessionStorage.getItem("current_session_id");
   const history: any[] = (() => {
+    if (!isCurrentActiveSession) return [];
     try {
       const h = sessionStorage.getItem("interview_turns_history");
       return h ? JSON.parse(h) : [];
@@ -4125,9 +4631,6 @@ function Overview({ session }: { session?: InterviewSession | null }) {
           </span>
         </div>
         <div>
-          <span className="pill">
-            <Sparkles /> ĐÁNH GIÁ TỔNG QUAN NĂNG LỰC
-          </span>
           <h2>{evalData.levelText}</h2>
           <p>
             Hồ sơ <b>{evalData.candidateName}</b> đã hoàn thành{" "}
@@ -4316,7 +4819,7 @@ function Overview({ session }: { session?: InterviewSession | null }) {
           <div className="card-title">
             <h3>
               <span>
-                <Sparkles />
+                <Lightbulb />
               </span>{" "}
               Gợi ý hoàn thiện thêm
             </h3>
@@ -4343,61 +4846,13 @@ function QuestionReview({
 }) {
   const [activeTurn, setActiveTurn] = useState(0);
   const session = propSession || loadInterviewSession();
+  const isCurrentActiveSession =
+    !session?.session_id ||
+    session.session_id === sessionStorage.getItem("current_session_id");
 
-  // Standard 5 high-quality interview turns for the position
-  const defaultTurns = [
-    {
-      turnIndex: 1,
-      stage: "Giới thiệu bản thân",
-      criterion: "Kinh nghiệm tổng quan",
-      question:
-        "Bạn hãy giới thiệu ngắn gọn về bản thân, kinh nghiệm lập trình Full-stack nổi bật nhất và vai trò trong các dự án gần đây?",
-      answer:
-        "Tôi có hơn 3 năm kinh nghiệm phát triển phần mềm với NestJS, React, TypeScript và Python. Trong các dự án gần đây, tôi chịu trách nhiệm thiết kế kiến trúc API, xây dựng backend microservices và tối ưu hóa trải nghiệm người dùng.",
-    },
-    {
-      turnIndex: 2,
-      stage: "Kiến thức chuyên môn",
-      criterion: "Kỹ thuật chuyên sâu & Xử lý API",
-      question:
-        "Trong dự án NextStep AI, bạn đề cập đến việc tích hợp LLM APIs và xây dựng backend bằng Python và NestJS. Bạn có thể mô tả cụ thể một thách thức kỹ thuật bạn gặp phải khi thiết kế API để xử lý dữ liệu CV lớn và cách bạn tối ưu hóa hiệu suất trong trường hợp đó?",
-      answer:
-        sessionStorage.getItem("last_turn_answer") ||
-        transcript?.corrected_transcript ||
-        transcript?.raw_transcript ||
-        "Khi xử lý tập dữ liệu CV lớn, tôi áp dụng cơ chế xử lý bất đồng bộ qua hàng đợi tác vụ, đồng thời phân đoạn (chunking) dữ liệu và kết hợp caching để giảm thiểu độ trễ phản hồi của hệ thống.",
-    },
-    {
-      turnIndex: 3,
-      stage: "Cơ sở dữ liệu & Caching",
-      criterion: "Tối ưu hóa Database & Hệ thống",
-      question:
-        "Khi xử lý lượng truy vấn lớn đồng thời vào cơ sở dữ liệu, bạn áp dụng những chiến lược caching và indexing nào để đảm bảo latency thấp?",
-      answer:
-        "Tôi áp dụng Redis làm cache layer cho các truy vấn đọc phổ biến và thiết lập TTL thích hợp. Ở tầng database, tôi tối ưu index B-Tree trên các cột tìm kiếm trọng yếu và phân tích execution plan bằng EXPLAIN ANALYZE để tránh tình trạng table scan diện rộng.",
-    },
-    {
-      turnIndex: 4,
-      stage: "Tư duy giải quyết vấn đề",
-      criterion: "Xử lý sự cố & Tính sẵn sàng cao",
-      question:
-        "Bạn xử lý thế nào khi một third-party API (như LLM API hoặc dịch vụ thanh toán) bị chậm hoặc timeout đột ngột để không ảnh hưởng đến trải nghiệm người dùng?",
-      answer:
-        "Tôi triển khai Circuit Breaker pattern kết hợp Message Queue (BullMQ / RabbitMQ) cho các tác vụ ngầm, đồng thời thiết lập retry policy với exponential backoff và trả về fallback response thân thiện ngay lập tức cho người dùng.",
-    },
-    {
-      turnIndex: 5,
-      stage: "Quy trình kiểm thử & CI/CD",
-      criterion: "Chất lượng mã nguồn & Triển khai",
-      question:
-        "Bạn thường áp dụng quy trình kiểm thử (Unit test/Integration test) và CI/CD như thế nào để đảm bảo chất lượng mã nguồn trước khi deploy lên production?",
-      answer:
-        "Tôi duy trì coverage kiểm thử tự động trên 80% với Jest và PyTest. Pipeline CI/CD qua GitHub Actions tự động kiểm tra cú pháp, chạy toàn bộ test suite và build Docker container trước khi deploy lên môi trường staging.",
-    },
-  ];
-
-  // Collect real answered turns from session and history
+  // Collect real answered turns from session and history (only use sessionStorage if it belongs to this session)
   const historyTurns: any[] = (() => {
+    if (!isCurrentActiveSession) return [];
     try {
       const h = sessionStorage.getItem("interview_turns_history");
       return h ? JSON.parse(h) : [];
@@ -4406,46 +4861,40 @@ function QuestionReview({
     }
   })();
 
-  // Real turns from session
-  const sessionTurns = (session?.turns || []).map((t, idx) => ({
-    turnIndex: idx + 1,
-    stage: t.stage || defaultTurns[idx]?.stage || "Chuyên môn",
-    criterion:
-      t.criterion || defaultTurns[idx]?.criterion || "Kiến thức chuyên môn",
-    question:
-      t.question ||
-      (t as any).question_text ||
-      defaultTurns[idx]?.question ||
-      `Câu hỏi ${idx + 1}`,
-    answer: t.answer || (t as any).answer_text || null,
-  }));
+  const rawSessionTurns = session?.turns || [];
+  const maxTurns = Math.max(rawSessionTurns.length, historyTurns.length);
 
-  // Construct complete 5 turns display list ensuring every question 1..5 is visible
-  const totalTurnsCount = Math.max(5, sessionTurns.length, historyTurns.length);
-  const turnsToDisplay = Array.from({ length: totalTurnsCount }, (_, idx) => {
+  const turnsToDisplay = Array.from({ length: maxTurns }, (_, idx) => {
     const fromHistory = historyTurns[idx];
-    const fromSession = sessionTurns[idx];
-    const fallback = defaultTurns[idx] || defaultTurns[defaultTurns.length - 1];
+    const fromSession = rawSessionTurns[idx];
 
     const question =
       fromHistory?.question ||
       fromSession?.question ||
+      (fromSession as any)?.question_text ||
       (idx === 0 ? sessionStorage.getItem("current_question_text") : null) ||
-      fallback.question;
+      `Câu hỏi ${idx + 1}`;
 
-    const stage = fromHistory?.stage || fromSession?.stage || fallback.stage;
+    const stage =
+      fromHistory?.stage || fromSession?.stage || "Phỏng vấn chuyên môn";
+
     const criterion =
-      fromHistory?.criterion || fromSession?.criterion || fallback.criterion;
+      fromHistory?.criterion || fromSession?.criterion || "Đánh giá năng lực";
 
-    let answer = fromHistory?.answer || fromSession?.answer;
-    if (!answer && idx === 1 && sessionStorage.getItem("last_turn_answer")) {
-      answer = sessionStorage.getItem("last_turn_answer");
-    }
+    let answer =
+      fromHistory?.answer ||
+      fromSession?.answer ||
+      (fromSession as any)?.answer_text ||
+      null;
     if (!answer && idx === 0 && transcript?.corrected_transcript) {
       answer = transcript.corrected_transcript;
     }
-    if (!answer) {
-      answer = fallback.answer;
+    if (
+      !answer &&
+      sessionStorage.getItem("last_turn_answer") &&
+      idx === maxTurns - 1
+    ) {
+      answer = sessionStorage.getItem("last_turn_answer");
     }
 
     return {
@@ -4453,152 +4902,95 @@ function QuestionReview({
       stage,
       criterion,
       question,
-      answer,
+      answer: answer || "(Ứng viên chưa hoàn thành câu trả lời này)",
     };
   });
+
+  if (turnsToDisplay.length === 0) {
+    return (
+      <Card className="rounded-2xl border border-zinc-200 bg-white px-6 py-14 text-center text-[15px] text-zinc-500">
+        Chưa có câu hỏi nào được ghi nhận trong phiên phỏng vấn này.
+      </Card>
+    );
+  }
 
   const current = turnsToDisplay[activeTurn] || turnsToDisplay[0];
 
   return (
-    <div className="question-review">
-      <div className="question-nav">
-        <h3>Các câu hỏi ({turnsToDisplay.length})</h3>
-        {turnsToDisplay.map((t, idx) => (
-          <button
-            key={idx}
-            className={activeTurn === idx ? "active" : ""}
-            onClick={() => setActiveTurn(idx)}
-          >
-            <span>{String(idx + 1).padStart(2, "0")}</span>
-            <p>
-              <b>Câu hỏi {idx + 1}</b>
-              <small>{t.criterion || t.stage || "Kiến thức chuyên môn"}</small>
-            </p>
-          </button>
-        ))}
-      </div>
-      <article className="white-card answer-detail">
-        <span
-          className="pill"
-          style={{
-            background: "#eef2ff",
-            color: "#4338ca",
-            fontWeight: 600,
-            padding: "5px 12px",
-            borderRadius: "6px",
-          }}
-        >
-          <Sparkles size={13} style={{ display: "inline", marginRight: 5 }} />
-          CÂU HỎI {activeTurn + 1} • {current.stage.toUpperCase()}
-        </span>
+    <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
+      {/* Left Question List */}
+      <Card className="h-fit rounded-2xl border border-zinc-200 bg-white p-4 lg:col-span-4">
+        <div className="mb-3 px-2 text-[14px] font-semibold text-zinc-950">
+          Các câu hỏi ({turnsToDisplay.length})
+        </div>
+        <div className="flex flex-col gap-1.5">
+          {turnsToDisplay.map((t, idx) => {
+            const isActive = activeTurn === idx;
+            return (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => setActiveTurn(idx)}
+                className={
+                  isActive
+                    ? "flex w-full items-center gap-3 rounded-xl border border-zinc-200 bg-zinc-100/90 px-3 py-3 text-left transition-colors cursor-pointer"
+                    : "flex w-full items-center gap-3 rounded-xl border border-transparent bg-transparent px-3 py-3 text-left transition-colors hover:bg-zinc-50 cursor-pointer"
+                }
+              >
+                <span
+                  className={
+                    isActive
+                      ? "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-900 text-[13px] font-semibold text-white tabular-nums"
+                      : "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-[13px] font-semibold text-zinc-600 tabular-nums"
+                  }
+                >
+                  {String(idx + 1).padStart(2, "0")}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[14px] font-semibold leading-snug text-zinc-950">
+                    Câu hỏi {idx + 1}
+                  </div>
+                  <div className="mt-0.5 truncate text-[12px] text-zinc-500">
+                    {t.criterion || t.stage || "Kiến thức chuyên môn"}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </Card>
 
-        <h2
-          style={{
-            fontSize: "18px",
-            lineHeight: "1.5",
-            margin: "16px 0",
-            color: "#111827",
-            fontWeight: 600,
-          }}
+      {/* Right Question & Answer Detail */}
+      <Card className="rounded-2xl border border-zinc-200 bg-white p-6 sm:p-7 lg:col-span-8">
+        <Badge
+          variant="secondary"
+          className="px-3 py-1 text-[12px] font-semibold"
         >
+          <MessageSquare className="h-3.5 w-3.5 text-emerald-600" />
+          CÂU HỎI {activeTurn + 1} · {current.stage.toUpperCase()}
+        </Badge>
+
+        <h2 className="m-0 mt-4 text-[19px] font-semibold leading-[1.55] tracking-[-0.01em] text-zinc-950">
           {current.question}
         </h2>
 
-        <div
-          className="transcript-answer"
-          style={{
-            marginTop: "18px",
-            borderTop: "1px solid #f3f4f6",
-            paddingTop: "16px",
-          }}
-        >
-          <h4
-            style={{
-              color: "#4b5563",
-              fontSize: "13px",
-              fontWeight: 600,
-              marginBottom: "8px",
-            }}
-          >
-            Câu trả lời của ứng viên:
+        <div className="mt-6 border-t border-zinc-100 pt-5">
+          <h4 className="m-0 mb-3 text-[13px] font-semibold uppercase tracking-[0.04em] text-zinc-500">
+            Câu trả lời của ứng viên
           </h4>
-          <p
-            style={{
-              background: "#f9fafb",
-              padding: "16px 18px",
-              borderRadius: "8px",
-              fontStyle: "italic",
-              color: "#1f2937",
-              lineHeight: 1.6,
-              border: "1px solid #e5e7eb",
-            }}
-          >
+          <p className="m-0 rounded-xl border border-zinc-200 bg-zinc-50/70 px-5 py-4 text-[15px] leading-[1.7] text-zinc-800">
             "{current.answer}"
           </p>
         </div>
-      </article>
+      </Card>
     </div>
   );
 }
-function AudioReport() {
-  return (
-    <>
-      <div className="analysis-metrics">
-        {[
-          ["135", "từ/phút", "Tốc độ nói"],
-          ["12%", "", "Tần suất ngập ngừng"],
-          ["1.1s", "", "Thời gian dừng TB"],
-          ["24:18", "", "Thời lượng nói"],
-        ].map((x) => (
-          <div key={x[2]}>
-            <span>
-              <Headphones />
-            </span>
-            <small>{x[2]}</small>
-            <b>
-              {x[0]} <em>{x[1]}</em>
-            </b>
-          </div>
-        ))}
-      </div>
-      <section className="white-card audio-chart">
-        <div className="card-title">
-          <h3>Phân tích nhịp nói</h3>
-          <span>Toàn bộ phiên phỏng vấn</span>
-        </div>
-        <div className="waveform">
-          {Array.from({ length: 80 }, (_, i) => (
-            <i
-              key={i}
-              style={{ height: `${12 + Math.abs(Math.sin(i * 0.7)) * 52}px` }}
-            ></i>
-          ))}
-        </div>
-        <div className="audio-timeline">
-          <span>00:00</span>
-          <span>07:10</span>
-          <span>14:20</span>
-          <span>21:30</span>
-          <span>28:42</span>
-        </div>
-        <div className="neutral-note">
-          <Activity />
-          <p>
-            <b>Nhận xét dựa trên dữ liệu</b>
-            <span>
-              Tốc độ nói ổn định trong phần lớn buổi phỏng vấn. Tần suất ngập
-              ngừng cao hơn trung bình ở các câu hỏi về system design.
-            </span>
-          </p>
-        </div>
-      </section>
-    </>
-  );
-}
+
 function VideoReport({ sessionId }: { sessionId?: string }) {
   const [gazeData] = useState<GazeReportResult | null>(() => {
     try {
-      if (sessionId && sessionId !== "1042" && sessionId !== "latest") {
+      if (sessionId && sessionId !== "latest") {
         const byId = localStorage.getItem(`gaze_result_${sessionId}`);
         if (byId) return JSON.parse(byId);
       }
@@ -4628,30 +5020,12 @@ function VideoReport({ sessionId }: { sessionId?: string }) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [selectedSnapshot]);
 
-  const presencePct = gazeData ? `${gazeData.face_presence_pct}%` : "96%";
-  const straightPct = gazeData ? `${gazeData.looking_straight_pct}%` : "85%";
-  const awayPct = gazeData ? `${gazeData.looking_away_pct}%` : "10%";
-  const notDetectedPct = gazeData ? `${gazeData.not_detected_pct}%` : "5%";
+  const presencePct = gazeData ? `${gazeData.face_presence_pct}%` : "--";
+  const straightPct = gazeData ? `${gazeData.looking_straight_pct}%` : "--";
+  const awayPct = gazeData ? `${gazeData.looking_away_pct}%` : "--";
+  const notDetectedPct = gazeData ? `${gazeData.not_detected_pct}%` : "--";
 
-  const events: GazeEvent[] =
-    gazeData?.events && gazeData.events.length > 0
-      ? gazeData.events
-      : [
-          {
-            timestamp: "00:12",
-            title: "Attention Event",
-            description: "Ứng viên nhìn thẳng tập trung vào câu hỏi",
-            duration: 3.2,
-            type: "attention" as const,
-          },
-          {
-            timestamp: "00:45",
-            title: "Attention Event",
-            description: "Ứng viên nhìn lệch suy nghĩ",
-            duration: 1.8,
-            type: "attention" as const,
-          },
-        ];
+  const events: GazeEvent[] = gazeData?.events || [];
 
   const evidenceCount = events.filter((e) => Boolean(e.snapshotUrl)).length;
   const displayedEvents =
@@ -4661,22 +5035,16 @@ function VideoReport({ sessionId }: { sessionId?: string }) {
 
   return (
     <>
-      <div className="analysis-metrics">
-        {[
-          [presencePct, "", "Khuôn mặt hiện diện"],
-          [straightPct, "", "Nhìn thẳng"],
-          [awayPct, "", "Nhìn lệch hướng"],
-          [notDetectedPct, "", "Không nhận diện"],
-        ].map((x) => (
-          <div key={x[2]}>
-            <span>
-              <Camera />
-            </span>
-            <small>{x[2]}</small>
-            <b>{x[0]}</b>
-          </div>
-        ))}
-      </div>
+      <section className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <KpiCard
+          label="Khuôn mặt hiện diện"
+          value={presencePct}
+          icon={ScanFace}
+        />
+        <KpiCard label="Nhìn thẳng" value={straightPct} icon={Eye} />
+        <KpiCard label="Nhìn lệch hướng" value={awayPct} icon={EyeOff} />
+        <KpiCard label="Không nhận diện" value={notDetectedPct} icon={UserX} />
+      </section>
 
       <section
         className="white-card event-section"
@@ -4692,7 +5060,7 @@ function VideoReport({ sessionId }: { sessionId?: string }) {
                 color: "#111827",
               }}
             >
-              Dòng thời gian sự kiện hướng nhìn (MediaPipe AI)
+              Dòng thời gian sự kiện hướng nhìn
             </h3>
             <span
               style={{
@@ -5043,292 +5411,102 @@ function VideoReport({ sessionId }: { sessionId?: string }) {
         </div>
       </section>
 
-      {/* In-App Lightbox / Modal for Snapshot Evidence */}
-      {selectedSnapshot && (
-        <div
-          onClick={() => setSelectedSnapshot(null)}
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(15, 23, 42, 0.85)",
-            backdropFilter: "blur(5px)",
-            zIndex: 99999,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "20px",
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: "#ffffff",
-              borderRadius: "16px",
-              maxWidth: "760px",
-              width: "100%",
-              boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5)",
-              overflow: "hidden",
-              display: "flex",
-              flexDirection: "column",
-              maxHeight: "92vh",
-            }}
-          >
-            {/* Header */}
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "16px 20px",
-                borderBottom: "1px solid #e2e8f0",
-              }}
-            >
-              <div
-                style={{ display: "flex", alignItems: "center", gap: "10px" }}
-              >
-                <div
-                  style={{
-                    width: "32px",
-                    height: "32px",
-                    borderRadius: "8px",
-                    background: "#fee2e2",
-                    color: "#dc2626",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <Camera size={18} />
-                </div>
-                <div>
-                  <h4
-                    style={{
-                      margin: 0,
-                      fontSize: "15px",
-                      fontWeight: 700,
-                      color: "#0f172a",
-                    }}
-                  >
-                    Ảnh chụp bằng chứng vi phạm
-                  </h4>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                      marginTop: "2px",
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    <span style={{ fontSize: "12px", color: "#64748b" }}>
-                      Thời điểm:{" "}
-                      <b style={{ color: "#0f172a", fontFamily: "monospace" }}>
-                        {selectedSnapshot.timestamp}
-                      </b>
-                    </span>
-                    <span style={{ color: "#cbd5e1" }}>•</span>
-                    <span style={{ fontSize: "12px", color: "#64748b" }}>
-                      Thời lượng:{" "}
-                      <b style={{ color: "#0f172a" }}>
-                        {selectedSnapshot.duration}s
-                      </b>
-                    </span>
-                    {selectedSnapshot.questionIndex && (
-                      <>
-                        <span style={{ color: "#cbd5e1" }}>•</span>
-                        <span
-                          style={{
-                            fontSize: "12px",
-                            color: "#4338ca",
-                            fontWeight: 600,
-                          }}
-                        >
-                          Câu {selectedSnapshot.questionIndex}
-                          {selectedSnapshot.stage
-                            ? ` • ${selectedSnapshot.stage.toUpperCase()}`
-                            : ""}
-                        </span>
-                      </>
-                    )}
-                    {selectedSnapshot.activity && (
-                      <>
-                        <span style={{ color: "#cbd5e1" }}>•</span>
-                        <span
-                          style={{
-                            fontSize: "12px",
-                            color: "#059669",
-                            fontWeight: 500,
-                          }}
-                        >
-                          {selectedSnapshot.activity}
-                        </span>
-                      </>
-                    )}
+      {/* shadcn/ui Dialog Lightbox for Snapshot Evidence */}
+      <Dialog
+        open={Boolean(selectedSnapshot)}
+        onOpenChange={(open) => {
+          if (!open) setSelectedSnapshot(null);
+        }}
+      >
+        <DialogContent className="max-w-[740px] gap-0 overflow-hidden p-0">
+          {selectedSnapshot && (
+            <>
+              <DialogHeader className="border-b border-zinc-200 px-6 py-4">
+                <div className="flex items-center gap-3 pr-8">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-600">
+                    <Camera className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <DialogTitle className="text-[15px]">
+                      Ảnh chụp bằng chứng hướng nhìn
+                    </DialogTitle>
+                    <DialogDescription className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                      <span>
+                        Thời điểm:{" "}
+                        <b className="font-mono text-zinc-900">
+                          {selectedSnapshot.timestamp}
+                        </b>
+                      </span>
+                      <span>·</span>
+                      <span>
+                        Thời lượng:{" "}
+                        <b className="text-zinc-900">
+                          {selectedSnapshot.duration}s
+                        </b>
+                      </span>
+                      {selectedSnapshot.questionIndex && (
+                        <>
+                          <span>·</span>
+                          <Badge variant="secondary" className="text-[11px]">
+                            Câu {selectedSnapshot.questionIndex}
+                            {selectedSnapshot.stage
+                              ? ` · ${selectedSnapshot.stage.toUpperCase()}`
+                              : ""}
+                          </Badge>
+                        </>
+                      )}
+                    </DialogDescription>
                   </div>
                 </div>
+              </DialogHeader>
+
+              <div className="flex max-h-[60vh] min-h-[320px] items-center justify-center bg-zinc-950 p-4">
+                {selectedSnapshot.snapshotUrl ? (
+                  <img
+                    src={selectedSnapshot.snapshotUrl}
+                    alt="Bằng chứng vi phạm"
+                    className="max-h-[56vh] max-w-full rounded-lg object-contain"
+                  />
+                ) : (
+                  <div className="text-sm text-zinc-400">
+                    Không có hình ảnh snapshot
+                  </div>
+                )}
               </div>
-              <button
-                onClick={() => setSelectedSnapshot(null)}
-                aria-label="Đóng (Esc)"
-                title="Đóng (Esc)"
-                style={{
-                  background: "#f1f5f9",
-                  border: "none",
-                  borderRadius: "50%",
-                  width: "36px",
-                  height: "36px",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  cursor: "pointer",
-                  color: "#475569",
-                  transition: "all 0.15s",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "#e2e8f0";
-                  e.currentTarget.style.color = "#0f172a";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "#f1f5f9";
-                  e.currentTarget.style.color = "#475569";
-                }}
-              >
-                <X size={20} />
-              </button>
-            </div>
 
-            {/* Image Preview */}
-            <div
-              style={{
-                background: "#090d16",
-                padding: "16px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                minHeight: "340px",
-                maxHeight: "62vh",
-                overflow: "hidden",
-              }}
-            >
-              {selectedSnapshot.snapshotUrl ? (
-                <img
-                  src={selectedSnapshot.snapshotUrl}
-                  alt="Bằng chứng vi phạm"
-                  style={{
-                    maxWidth: "100%",
-                    maxHeight: "60vh",
-                    objectFit: "contain",
-                    borderRadius: "8px",
-                    boxShadow: "0 8px 30px rgba(0,0,0,0.6)",
-                  }}
-                />
-              ) : (
-                <div style={{ color: "#94a3b8", fontSize: "14px" }}>
-                  Không có hình ảnh snapshot
-                </div>
-              )}
-            </div>
-
-            {/* Footer */}
-            <div
-              style={{
-                padding: "14px 20px",
-                background: "#f8fafc",
-                borderTop: "1px solid #e2e8f0",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                flexWrap: "wrap",
-                gap: "12px",
-              }}
-            >
-              <div style={{ flex: 1, minWidth: "240px" }}>
-                <b
-                  style={{
-                    fontSize: "12px",
-                    color: "#1e293b",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.5px",
-                  }}
-                >
-                  Hành vi ghi nhận:
-                </b>
-                <p
-                  style={{
-                    margin: "3px 0 0",
-                    fontSize: "13px",
-                    color: "#475569",
-                    fontWeight: 600,
-                  }}
-                >
-                  {selectedSnapshot.description}
-                </p>
-                {selectedSnapshot.questionText && (
-                  <p
-                    style={{
-                      margin: "6px 0 0",
-                      fontSize: "12px",
-                      color: "#4b5563",
-                      background: "#f1f5f9",
-                      padding: "6px 10px",
-                      borderRadius: "6px",
-                      borderLeft: "3px solid #6366f1",
-                      fontStyle: "italic",
-                      lineHeight: 1.4,
-                    }}
-                  >
-                    <b style={{ fontStyle: "normal", color: "#1f2937" }}>
-                      Đang trong câu hỏi:{" "}
-                    </b>
-                    "{selectedSnapshot.questionText}"
+              <div className="flex flex-wrap items-center justify-between gap-4 border-t border-zinc-200 bg-zinc-50 px-6 py-4">
+                <div className="min-w-[220px] flex-1">
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                    Hành vi ghi nhận
+                  </div>
+                  <p className="m-0 mt-1 text-sm font-medium text-zinc-900">
+                    {selectedSnapshot.description}
                   </p>
-                )}
-              </div>
-              <div
-                style={{ display: "flex", alignItems: "center", gap: "10px" }}
-              >
+                  {selectedSnapshot.questionText && (
+                    <p className="m-0 mt-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs italic text-zinc-600">
+                      <span className="not-italic font-semibold text-zinc-800">
+                        Đang trong câu hỏi:{" "}
+                      </span>
+                      "{selectedSnapshot.questionText}"
+                    </p>
+                  )}
+                </div>
+
                 {selectedSnapshot.snapshotUrl && (
-                  <a
-                    href={selectedSnapshot.snapshotUrl}
-                    download={`evidence-${selectedSnapshot.timestamp.replace(":", "-")}.jpg`}
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "6px",
-                      padding: "7px 14px",
-                      background: "#ffffff",
-                      border: "1px solid #cbd5e1",
-                      borderRadius: "8px",
-                      fontSize: "12px",
-                      fontWeight: 600,
-                      color: "#334155",
-                      textDecoration: "none",
-                      cursor: "pointer",
-                    }}
-                  >
-                    <Download size={14} /> Tải ảnh
-                  </a>
+                  <Button variant="outline" size="sm" asChild>
+                    <a
+                      href={selectedSnapshot.snapshotUrl}
+                      download={`evidence-${selectedSnapshot.timestamp.replace(":", "-")}.jpg`}
+                    >
+                      <Download className="h-3.5 w-3.5" /> Tải ảnh
+                    </a>
+                  </Button>
                 )}
-                <span style={{ fontSize: "12px", color: "#94a3b8" }}>
-                  Bấm{" "}
-                  <kbd
-                    style={{
-                      padding: "2px 5px",
-                      background: "#e2e8f0",
-                      borderRadius: "4px",
-                      fontSize: "11px",
-                      color: "#334155",
-                    }}
-                  >
-                    ESC
-                  </kbd>{" "}
-                  hoặc click ngoài để đóng
-                </span>
               </div>
-            </div>
-          </div>
-        </div>
-      )}
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

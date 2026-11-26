@@ -1,30 +1,68 @@
 import { useState, useEffect, useRef } from "react";
 import {
   ArrowRight,
-  BarChart3,
-  Bell,
+  Award,
   BriefcaseBusiness,
-  CalendarDays,
   Check,
-  ChevronLeft,
+  CheckCircle2,
   ChevronRight,
-  Clock3,
+  ClipboardList,
   FileText,
-  Home,
-  LogOut,
+  Gauge,
   MapPin,
-  Menu,
   Plus,
   Search,
-  Sparkles,
-  Target,
+  ShieldCheck,
+  SlidersHorizontal,
+  Trophy,
   UploadCloud,
-  UserRound,
+  Video,
   X,
 } from "lucide-react";
-import { useNavigate, useParams } from "react-router-dom";
+import { AppLayout } from "@/components/layout/AppLayout";
+import { HelpCenterContent } from "@/components/layout/HelpCenterContent";
+import {
+  PageHeader,
+  getVietnameseDateEyebrow,
+} from "@/components/layout/PageHeader";
+import { KpiCard } from "@/components/dashboard/KpiCard";
+import { UserScoreProgressCard } from "@/components/dashboard/UserScoreProgressCard";
+import { UserSkillRadarCard } from "@/components/dashboard/UserSkillRadarCard";
+import { RecentSessionsCard } from "@/components/dashboard/RecentSessionsCard";
+import { VacanciesCard } from "@/components/dashboard/VacanciesCard";
+import {
+  buildSkillRadarData,
+  buildUserScoreProgressData,
+  evaluateSessions,
+} from "@/utils/dashboardMetrics";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Pagination } from "@/components/ui/pagination";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { ReportContent, computeAiEvaluation } from "../Pages";
+import {
+  ReportContent,
+  SettingsFormContent,
+  computeAiEvaluation,
+} from "../Pages";
 import {
   loadInterviewSession,
   loadCvAnalysis,
@@ -36,7 +74,63 @@ import {
   saveCvAnalysis,
   saveInterviewSession,
 } from "../services/interviewApi";
-import { fetchRealJobs, DbJob } from "../services/jobApi";
+import {
+  fetchDemoOptions,
+  fetchRealJobs,
+  getCachedDemoCvs,
+  getCachedRealJobs,
+  DbJob,
+} from "../services/jobApi";
+
+// Helper to calculate genuine match between candidate's analyzed CV skills and job requirements
+function calculateCvSkillMatch(
+  jobSkills: string[] = [],
+  jobTitle: string = "",
+  cvAnalysis: any,
+): { matchPercentage: number | null; matchedSkills: string[] } {
+  if (!cvAnalysis || !cvAnalysis.extracted_profile) {
+    return { matchPercentage: null, matchedSkills: [] };
+  }
+  const ep = cvAnalysis.extracted_profile;
+  const rawSkills: string[] = [
+    ...(ep.cv_skills || []).map((s: any) =>
+      typeof s === "string" ? s : s?.name || "",
+    ),
+    ...(ep.technical_skills || []),
+    ...(ep.frameworks || []),
+    ...(ep.tools || []),
+    ep.target_role || "",
+  ];
+  const candidateSkills = rawSkills
+    .filter(Boolean)
+    .map((s) => s.trim().toLowerCase());
+
+  if (candidateSkills.length === 0) {
+    return { matchPercentage: null, matchedSkills: [] };
+  }
+
+  const cleanJobSkills = jobSkills.filter((s) => s && s !== "Dữ liệu thực");
+  if (cleanJobSkills.length === 0) {
+    const titleLower = jobTitle.toLowerCase();
+    const hasMatch = candidateSkills.some(
+      (cs) => cs.length > 2 && titleLower.includes(cs),
+    );
+    return { matchPercentage: hasMatch ? 75 : 50, matchedSkills: [] };
+  }
+
+  const matched = cleanJobSkills.filter((js) => {
+    const jsLower = js.trim().toLowerCase();
+    return candidateSkills.some(
+      (cs) => cs.includes(jsLower) || jsLower.includes(cs),
+    );
+  });
+
+  const pct = Math.min(
+    100,
+    Math.round((matched.length / cleanJobSkills.length) * 100),
+  );
+  return { matchPercentage: pct, matchedSkills: matched };
+}
 
 function CandidateLayout({
   active,
@@ -45,116 +139,11 @@ function CandidateLayout({
   active: string;
   children: React.ReactNode;
 }) {
-  const nav = useNavigate(),
-    { user, logout } = useAuth(),
-    [open, setOpen] = useState(false);
-  const links = [
-    ["/app", "Tổng quan", <Home />],
-    ["/app/jobs", "Công việc", <BriefcaseBusiness />],
-    ["/app/interviews/new", "Phỏng vấn", <Sparkles />],
-    ["/app/results", "Kết quả của tôi", <BarChart3 />],
-    ["/app/profile", "Hồ sơ cá nhân", <UserRound />],
-  ] as const;
-  const signOut = () => {
-    logout();
-    nav("/login");
-  };
+  const nav = useNavigate();
   return (
-    <div className="candidate-app">
-      <button className="candidate-mobile" onClick={() => setOpen(true)}>
-        <Menu />
-      </button>
-      {open && (
-        <div className="candidate-scrim" onClick={() => setOpen(false)} />
-      )}
-      <aside className={open ? "open" : ""}>
-        <button className="candidate-logo" onClick={() => nav("/app")}>
-          <i>
-            <Sparkles />
-          </i>
-          Interviewly
-        </button>
-        <button className="candidate-close" onClick={() => setOpen(false)}>
-          <X />
-        </button>
-        <div className="candidate-role">
-          <span>KHÔNG GIAN ỨNG VIÊN</span>
-        </div>
-        <nav>
-          {links.map(([path, label, icon]) => (
-            <button
-              className={active === path ? "active" : ""}
-              onClick={() => {
-                nav(path);
-                setOpen(false);
-              }}
-              key={path}
-            >
-              {icon}
-              {label}
-            </button>
-          ))}
-        </nav>
-        <div className="candidate-help">
-          <Sparkles />
-          <b>Sẵn sàng phỏng vấn?</b>
-          <p>Kiểm tra thiết bị trước để có trải nghiệm tốt nhất.</p>
-        </div>
-        {(() => {
-          const initials = user?.name
-            ? user.name
-                .split(" ")
-                .map((w: string) => w[0])
-                .filter(Boolean)
-                .slice(-2)
-                .join("")
-                .toUpperCase()
-            : user?.username
-              ? user.username.slice(0, 2).toUpperCase()
-              : "UV";
-          return (
-            <div className="candidate-user">
-              <span>{initials}</span>
-              <p>
-                <b>{user?.name || "Ứng viên"}</b>
-                <small>
-                  {user?.username ? `ID: ${user.username}` : "Ứng viên"}
-                </small>
-              </p>
-              <button onClick={signOut} title="Đăng xuất">
-                <LogOut />
-              </button>
-            </div>
-          );
-        })()}
-      </aside>
-      <main className="sub-content candidate-main">{children}</main>
-    </div>
-  );
-}
-
-function CandidateHeader({
-  title,
-  desc,
-  action,
-}: {
-  title: string;
-  desc: string;
-  action?: React.ReactNode;
-}) {
-  return (
-    <header className="candidate-header">
-      <div>
-        <h1>{title}</h1>
-        <p>{desc}</p>
-      </div>
-      <div>
-        <button className="icon-btn">
-          <Bell />
-        </button>
-        {action}
-      </div>
-    </header>
+    <AppLayout role="user" activeKey={active} onNavigate={(path) => nav(path)}>
+      {children}
+    </AppLayout>
   );
 }
 
@@ -162,7 +151,6 @@ export function CandidateHome() {
   const nav = useNavigate();
   const { user } = useAuth();
   const localSession = loadInterviewSession();
-  const cvAnalysis = loadCvAnalysis();
 
   const uid =
     user?.user_id_num ||
@@ -182,10 +170,20 @@ export function CandidateHome() {
     } catch (_) {}
     return [];
   });
+  const [loadingSessions, setLoadingSessions] = useState<boolean>(() => {
+    try {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return false;
+      }
+    } catch (_) {}
+    return true;
+  });
 
   // Real jobs from database
   const [recommendedJobs, setRecommendedJobs] = useState<any[]>([]);
-  const [totalJobsCount, setTotalJobsCount] = useState<number>(48);
+  const [totalJobsCount, setTotalJobsCount] = useState<number>(0);
 
   useEffect(() => {
     const cleanUid =
@@ -193,27 +191,30 @@ export function CandidateHome() {
       user?.id ||
       localStorage.getItem("current_user_id") ||
       1;
-    getUserSessions(cleanUid).then((res) => {
-      if (Array.isArray(res) && res.length > 0) {
-        setSessions(res);
-        try {
-          localStorage.setItem(
-            `user_db_sessions_${cleanUid}`,
-            JSON.stringify(res),
-          );
-        } catch (_) {}
-      }
-    });
+    getUserSessions(cleanUid)
+      .then((res) => {
+        if (Array.isArray(res) && res.length > 0) {
+          setSessions(res);
+          try {
+            localStorage.setItem(
+              `user_db_sessions_${cleanUid}`,
+              JSON.stringify(res),
+            );
+          } catch (_) {}
+        }
+      })
+      .finally(() => setLoadingSessions(false));
 
+    const cvAnalysis = loadCvAnalysis();
     fetchRealJobs().then((list) => {
       if (Array.isArray(list) && list.length > 0) {
         setTotalJobsCount(list.length);
-        const top3 = list.slice(0, 3).map((j, i) => {
-          const matchScore = 88 + ((j.id * 5 + i * 2) % 10);
-          const cleanSkills =
-            j.skills && j.skills.length > 0
-              ? j.skills.filter((s) => s !== "Dữ liệu thực").slice(0, 3)
-              : ["Toàn thời gian"];
+        const top5 = list.slice(0, 5).map((j) => {
+          const { matchPercentage } = calculateCvSkillMatch(
+            j.skills,
+            j.title,
+            cvAnalysis,
+          );
           return {
             id: j.id,
             title: j.title,
@@ -222,621 +223,254 @@ export function CandidateHome() {
             type: j.level
               ? `Level: ${j.level.toUpperCase()}`
               : "Toàn thời gian",
-            match: matchScore,
-            skills: cleanSkills,
+            match: matchPercentage,
           };
         });
-        setRecommendedJobs(top3);
+        setRecommendedJobs(top5);
       }
     });
   }, [user]);
 
-  // Dynamic statistics calculated from actual sessions
-  const latestSession =
-    sessions && sessions.length > 0 ? sessions[0] : localSession;
-  const latestEval = latestSession ? computeAiEvaluation(latestSession) : null;
-  const hasAnsweredSession =
-    sessions.length > 0 ||
-    (localSession && localSession.turns?.some((t) => t.answer));
+  const allSessions =
+    sessions && sessions.length > 0
+      ? sessions
+      : localSession && localSession.turns?.some((t) => t.answer)
+        ? [localSession]
+        : [];
 
-  const latestScore = latestEval?.overallScore || (hasAnsweredSession ? 80 : 0);
-  const scoresList = sessions
-    .map((s) => computeAiEvaluation(s).overallScore || 0)
-    .filter((s) => s > 0);
-  const highestScore =
-    scoresList.length > 0 ? Math.max(...scoresList) : latestScore || 85;
-  const completedCount =
-    sessions.length > 0
-      ? String(sessions.length).padStart(2, "0")
-      : hasAnsweredSession
-        ? "01"
-        : "00";
+  const evaluated = evaluateSessions(allSessions, (s) =>
+    computeAiEvaluation(s),
+  );
+
+  // Latest completed session for radar & score hero (fallback to latest session)
+  const latestCompleted = evaluated.find((x) => x.isCompleted) || evaluated[0];
+  const latestEval = latestCompleted?.eval || null;
+  const latestScore = latestEval?.overallScore ?? 0;
+
+  const progressMetrics = buildUserScoreProgressData(evaluated, 10);
+  const highestScore = progressMetrics.highestScore || latestScore;
+  const completedSessionsCount = progressMetrics.completedCount;
+
+  const totalAnsweredTurns = evaluated.reduce(
+    (sum, item) => sum + item.answeredTurns,
+    0,
+  );
 
   const topCompetency =
-    latestEval?.competencies?.[0]?.label?.split("&")?.[0]?.trim() ||
-    "Kiến thức chuyên môn";
-  const topScore = latestEval?.competencies?.[0]?.score || highestScore || 85;
+    latestEval?.competencies?.[0]?.label?.split("&")?.[0]?.trim() || "Chưa có";
 
-  const percentileText =
-    latestScore >= 80
-      ? "Top 15% ứng viên xuất sắc"
-      : latestScore >= 60
-        ? "Top 35% ứng viên tiềm năng"
-        : "Cần hoàn thành thêm bài phỏng vấn";
+  const radarSkills = buildSkillRadarData(latestEval?.competencies || []);
 
-  const competenciesToDisplay =
-    latestEval?.competencies && latestEval.competencies.length >= 4
-      ? latestEval.competencies.slice(0, 4)
-      : [
-          { label: "Kiến thức chuyên môn", score: Math.max(70, latestScore) },
-          {
-            label: "Tư duy giải quyết vấn đề",
-            score: Math.max(65, latestScore - 5),
-          },
-          {
-            label: "Giao tiếp & Thuyết trình",
-            score: Math.max(75, latestScore + 2),
-          },
-          {
-            label: "Tác phong & Độ tự tin",
-            score: Math.max(80, latestScore + 6),
-          },
-        ];
+  const latestDateLabel = latestCompleted?.session.created_at
+    ? `Phiên ngày ${new Date(latestCompleted.session.created_at).toLocaleDateString("vi-VN")}`
+    : "Chưa có phiên nào";
+
+  const tableRows = evaluated.slice(0, 5).map((item, idx) => {
+    const s = item.session;
+    const score = item.eval.overallScore ?? 0;
+    const dateStr = s.created_at
+      ? new Date(s.created_at).toLocaleDateString("vi-VN")
+      : "Gần đây";
+    return {
+      id: s.session_id || String(idx),
+      jobTitle: item.jobTitle,
+      subMeta: `Phiên #${s.session_id ? s.session_id.slice(0, 8) : idx + 1} · ${item.answeredTurns} câu trả lời`,
+      dateLabel: dateStr,
+      timestamp: item.timestamp,
+      score: score > 0 ? score : null,
+      status: item.isCompleted
+        ? ("completed" as const)
+        : ("processing" as const),
+      statusLabel: item.isCompleted ? "Hoàn thành" : "Chưa hoàn thành",
+      onSelect: () => nav(`/app/results/${s.session_id || "latest"}`),
+    };
+  });
+
+  const vacancyItems = recommendedJobs.map((j) => ({
+    id: j.id,
+    title: j.title,
+    company: j.company,
+    meta: `${j.location} · ${j.type}`,
+    matchPercentage: j.match,
+    actionLabel: "Phỏng vấn",
+    onAction: () => {
+      sessionStorage.setItem("candidate_selected_job_id", String(j.id));
+      nav("/app/interviews/new");
+    },
+  }));
 
   return (
     <CandidateLayout active="/app">
-      <CandidateHeader
-        title={`Xin chào, ${user?.name || "Ứng viên"} 👋`}
-        desc="Chào mừng bạn quay lại hệ thống luyện tập phỏng vấn AI thông minh."
+      <PageHeader
+        eyebrow={getVietnameseDateEyebrow()}
+        title={`Chào buổi sáng, ${user?.name || "Ứng viên"}`}
+        description="Quản lý lộ trình luyện tập phỏng vấn và theo dõi tiến bộ qua từng phiên."
         action={
-          <button
-            className="primary"
-            onClick={() => nav("/app/interviews/new")}
-          >
-            <Sparkles /> Bắt đầu phỏng vấn
-          </button>
+          <div className="flex items-center gap-2.5">
+            <Button
+              variant="outline"
+              size="lg"
+              onClick={() => nav("/app/interviews/device-check")}
+            >
+              Kiểm tra thiết bị
+            </Button>
+            <Button
+              variant="brand"
+              size="lg"
+              onClick={() => nav("/app/interviews/new")}
+            >
+              <Plus /> Phỏng vấn mới
+            </Button>
+          </div>
         }
       />
 
-      <section className="candidate-hero">
-        <div>
-          <span>AI INTERVIEW COACH</span>
-          <h2>
-            Rèn luyện bản lĩnh.
-            <br />
-            <em>Chinh phục cơ hội việc làm.</em>
-          </h2>
-          <p>
-            Trải nghiệm phỏng vấn mô phỏng chuẩn xác từ CV của bạn, nhận phân
-            tích 7 tiêu chí vi mô và giám sát độ tập trung ánh nhìn (Eye Gaze)
-            theo thời gian thực.
-          </p>
-          <div className="candidate-hero-actions">
-            <button onClick={() => nav("/app/interviews/new")}>
-              Tạo phiên phỏng vấn <ArrowRight />
-            </button>
-            <button
-              className="candidate-hero-btn-outline"
-              onClick={() => nav("/app/jobs")}
-            >
-              <BriefcaseBusiness size={16} /> Khám phá {totalJobsCount} việc làm
-            </button>
+      <div className="space-y-5">
+        {/* Row 1: 4 KPI Stat Cards */}
+        <section className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+          <KpiCard
+            label="Công việc đang mở"
+            value={totalJobsCount}
+            subtitle="Vị trí thực tế trong kho dữ liệu"
+            icon={BriefcaseBusiness}
+            onClick={() => nav("/app/jobs")}
+            actionTitle="Khám phá công việc"
+          />
+          <KpiCard
+            label="Phỏng vấn đã làm"
+            value={String(allSessions.length).padStart(2, "0")}
+            subtitle={`${completedSessionsCount} hoàn thành · ${Math.max(0, allSessions.length - completedSessionsCount)} chưa xong`}
+            icon={Video}
+            onClick={() => nav("/app/results")}
+            actionTitle="Xem lịch sử phỏng vấn"
+          />
+          <KpiCard
+            label="Điểm cao nhất"
+            value={highestScore > 0 ? highestScore : "--"}
+            subtitle={
+              highestScore > 0
+                ? "Thành tích tốt nhất (/100)"
+                : "Hoàn thành phiên đầu tiên"
+            }
+            icon={Trophy}
+            onClick={() => nav("/app/results")}
+            actionTitle="Xem kết quả chi tiết"
+          />
+          <KpiCard
+            label="Điểm gần nhất"
+            value={latestScore > 0 ? latestScore : "--"}
+            subtitle={latestDateLabel}
+            badgeText={
+              latestScore >= 80
+                ? "Xuất sắc"
+                : latestScore >= 60
+                  ? "Tiềm năng"
+                  : latestScore > 0
+                    ? "Cần cải thiện"
+                    : undefined
+            }
+            badgeTone={
+              latestScore >= 80
+                ? "success"
+                : latestScore >= 60
+                  ? "neutral"
+                  : latestScore > 0
+                    ? "warning"
+                    : "neutral"
+            }
+            icon={Gauge}
+            onClick={() =>
+              nav(
+                allSessions[0]?.session_id
+                  ? `/app/results/${allSessions[0].session_id}`
+                  : "/app/results",
+              )
+            }
+          />
+        </section>
+
+        {/* Row 2: Completed Score Progress Bar Chart + 4-Skill Radar Chart */}
+        <section className="grid grid-cols-1 gap-5 lg:grid-cols-12">
+          <div className="lg:col-span-7">
+            <UserScoreProgressCard
+              title="Tiến độ điểm phỏng vấn"
+              points={progressMetrics.points}
+              averageScore={progressMetrics.averageScore}
+              summaryStats={[
+                { label: "Phiên hoàn thành", value: completedSessionsCount },
+                { label: "Câu đã trả lời", value: totalAnsweredTurns },
+                { label: "Năng lực nổi bật", value: topCompetency },
+              ]}
+              loading={loadingSessions}
+              onSelectSession={(sid) => nav(`/app/results/${sid}`)}
+              onStartInterview={() => nav("/app/interviews/new")}
+            />
           </div>
-        </div>
-        <div className="candidate-score">
-          <span>
-            <b>{latestScore > 0 ? latestScore : "--"}</b>
-            <small>ĐIỂM GẦN NHẤT</small>
-          </span>
-          <p>
-            <Check /> {percentileText}
-          </p>
-        </div>
-      </section>
+          <div className="lg:col-span-5">
+            <UserSkillRadarCard
+              title="Chỉ số năng lực"
+              overallScore={latestScore}
+              skills={radarSkills}
+              loading={loadingSessions}
+            />
+          </div>
+        </section>
 
-      <div className="candidate-quick four-cards">
-        <article>
-          <span>
-            <BriefcaseBusiness />
-          </span>
-          <p>
-            <small>CÔNG VIỆC PHÙ HỢP</small>
-            <b>{totalJobsCount}</b>
-          </p>
-          <button onClick={() => nav("/app/jobs")}>
-            Khám phá <ChevronRight />
-          </button>
-        </article>
-        <article>
-          <span>
-            <FileText />
-          </span>
-          <p>
-            <small>PHỎNG VẤN ĐÃ LÀM</small>
-            <b>{completedCount}</b>
-          </p>
-          <button onClick={() => nav("/app/results")}>
-            Xem kết quả <ChevronRight />
-          </button>
-        </article>
-        <article>
-          <span>
-            <Target />
-          </span>
-          <p>
-            <small>ĐIỂM CAO NHẤT</small>
-            <b>{highestScore}</b>
-          </p>
-          <em>Đánh giá từ AI</em>
-        </article>
-        <article>
-          <span>
-            <Sparkles />
-          </span>
-          <p>
-            <small>NĂNG LỰC NỔI BẬT</small>
-            <b style={{ fontSize: "14px", lineHeight: 1.3, marginTop: "4px" }}>
-              {topCompetency}
-            </b>
-          </p>
-          <em>{topScore}/100 điểm</em>
-        </article>
-      </div>
-
-      <div className="candidate-dashboard-grid">
-        <div className="candidate-main-col">
-          {/* Section 1: Recent Real Activity */}
-          <section className="candidate-card-box">
-            <div className="candidate-section-header">
-              <h2>Hoạt động phỏng vấn gần đây</h2>
-              <button onClick={() => nav("/app/results")}>
-                Xem tất cả ({sessions.length}) <ChevronRight size={14} />
-              </button>
-            </div>
-            {sessions && sessions.length > 0 ? (
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "10px",
-                }}
-              >
-                {sessions.slice(0, 3).map((s, idx) => {
-                  const dateStr = s.created_at
-                    ? new Date(s.created_at).toLocaleDateString("vi-VN")
-                    : "Gần đây";
-                  const evalObj = computeAiEvaluation(s);
-                  const answeredTurns = s.turns
-                    ? s.turns.filter((t: any) => t.answer).length
-                    : 0;
-                  const score = evalObj.overallScore || 80;
-                  const jobName =
-                    s.job_profile_json?.title ||
-                    s.cv_profile_json?.target_role ||
-                    evalObj.jobTitle ||
-                    "Phiên phỏng vấn AI";
-                  return (
-                    <div
-                      className="candidate-activity"
-                      key={s.session_id || idx}
-                      style={{
-                        borderLeft: idx === 0 ? "4px solid #10b981" : undefined,
-                      }}
-                    >
-                      <span
-                        className="candidate-job-icon"
-                        style={{ background: "#ecfdf5", color: "#059669" }}
-                      >
-                        {s.current_stage
-                          ? s.current_stage.slice(0, 2).toUpperCase()
-                          : "AI"}
-                      </span>
-                      <p>
-                        <b>{jobName}</b>
-                        <small>
-                          Phiên #
-                          {s.session_id ? s.session_id.slice(0, 8) : idx + 1} •{" "}
-                          {dateStr} • {answeredTurns} câu đã trả lời
-                        </small>
-                      </p>
-                      <div>
-                        <strong style={{ color: "#059669" }}>
-                          {score}
-                          <small>/100</small>
-                        </strong>
-                        <button
-                          className={idx === 0 ? "primary" : ""}
-                          onClick={() => nav(`/app/results/${s.session_id}`)}
-                        >
-                          Xem kết quả
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : hasAnsweredSession ? (
-              <div
-                className="candidate-activity"
-                style={{ borderLeft: "4px solid #10b981" }}
-              >
-                <span
-                  className="candidate-job-icon"
-                  style={{ background: "#ecfdf5", color: "#059669" }}
-                >
-                  AI
-                </span>
-                <p>
-                  <b>
-                    {cvAnalysis?.job_context?.title ||
-                      latestEval?.jobTitle ||
-                      "Phiên phỏng vấn AI"}
-                  </b>
-                  <small>
-                    Phiên phỏng vấn vừa hoàn thành •{" "}
-                    {new Date().toLocaleDateString("vi-VN")}
-                  </small>
-                </p>
-                <div>
-                  <strong style={{ color: "#059669" }}>
-                    {latestScore}
-                    <small>/100</small>
-                  </strong>
-                  <button
-                    className="primary"
-                    onClick={() =>
-                      nav(
-                        `/app/results/${localSession?.session_id || "latest"}`,
-                      )
-                    }
-                  >
-                    Xem kết quả
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div
-                style={{
-                  textAlign: "center",
-                  padding: "36px 20px",
-                  color: "#64748b",
-                }}
-              >
-                <p style={{ margin: "0 0 14px", fontSize: "13px" }}>
-                  Bạn chưa thực hiện phiên phỏng vấn nào. Hãy bắt đầu ngay để
-                  nhận đánh giá chi tiết từ AI.
-                </p>
-                <button
-                  className="primary"
-                  onClick={() => nav("/app/interviews/new")}
-                >
-                  Tạo phiên phỏng vấn đầu tiên
-                </button>
-              </div>
-            )}
-          </section>
-
-          {/* Section 2: Recommended Real Jobs */}
-          <section className="candidate-card-box">
-            <div className="candidate-section-header">
-              <h2>Công việc đề xuất phù hợp nhất</h2>
-              <button onClick={() => nav("/app/jobs")}>
-                Xem tất cả ({totalJobsCount}) <ChevronRight size={14} />
-              </button>
-            </div>
-            <div
-              style={{ display: "flex", flexDirection: "column", gap: "10px" }}
-            >
-              {recommendedJobs.map((j) => {
-                const initials =
-                  (j.company || "CT")
-                    .split(" ")
-                    .map((x: string) => x[0])
-                    .filter(Boolean)
-                    .slice(0, 3)
-                    .join("")
-                    .toUpperCase() || "CT";
-                return (
-                  <div className="candidate-job-card-compact" key={j.id}>
-                    <div
-                      className="candidate-company"
-                      style={{
-                        width: "42px",
-                        height: "42px",
-                        fontSize: "11px",
-                        borderRadius: "9px",
-                      }}
-                    >
-                      {initials}
-                    </div>
-                    <div className="candidate-job-info">
-                      <span>
-                        <b style={{ fontSize: "14px" }}>{j.title}</b>
-                        <small>
-                          {j.company} • {j.location} • {j.type}
-                        </small>
-                      </span>
-                      <div style={{ marginTop: "6px" }}>
-                        {j.skills.map((s: string) => (
-                          <em
-                            key={s}
-                            style={{ fontSize: "9px", padding: "3px 7px" }}
-                          >
-                            {s}
-                          </em>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="candidate-match" style={{ gap: "12px" }}>
-                      <span>
-                        <b style={{ fontSize: "16px" }}>{j.match}%</b>
-                        <small>phù hợp</small>
-                      </span>
-                      <button
-                        style={{
-                          height: "34px",
-                          padding: "0 11px",
-                          fontSize: "11px",
-                        }}
-                        onClick={() => {
-                          sessionStorage.setItem(
-                            "candidate_selected_job_id",
-                            String(j.id),
-                          );
-                          nav("/app/interviews/new");
-                        }}
-                      >
-                        Phỏng vấn <ArrowRight size={13} />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-        </div>
-
-        {/* Right Side Column */}
-        <div className="candidate-side-col">
-          {/* Section 3: AI Competency Readiness */}
-          <section className="candidate-card-box">
-            <div className="candidate-section-header">
-              <h2>Chỉ số năng lực</h2>
-              <span
-                style={{ fontSize: "11px", color: "#059669", fontWeight: 700 }}
-              >
-                {latestScore > 0 ? `${latestScore}/100 ĐTB` : "Chờ đánh giá"}
-              </span>
-            </div>
-            <p
-              style={{
-                fontSize: "12px",
-                color: "#64748b",
-                margin: "0 0 16px",
-                lineHeight: 1.5,
+        {/* Row 3: Recent Activity Table + Recommended Vacancies */}
+        <section className="grid grid-cols-1 gap-5 lg:grid-cols-12">
+          <div className="lg:col-span-8">
+            <RecentSessionsCard
+              title="Hoạt động phỏng vấn gần đây"
+              rows={tableRows}
+              showCandidateColumn={false}
+              enableSort
+              searchPlaceholder="Tìm theo vị trí phỏng vấn..."
+              onViewAll={() => nav("/app/results")}
+              emptyMessage="Bạn chưa thực hiện phiên phỏng vấn nào."
+              emptyAction={{
+                label: "Tạo phiên phỏng vấn đầu tiên",
+                onClick: () => nav("/app/interviews/new"),
               }}
-            >
-              Tổng hợp điểm các khía cạnh phỏng vấn qua các phiên tương tác AI
-              gần nhất.
-            </p>
-            <div>
-              {competenciesToDisplay.map((c) => (
-                <div className="candidate-competency-item" key={c.label}>
-                  <div className="candidate-competency-label">
-                    <span>{c.label}</span>
-                    <strong>{c.score}/100</strong>
-                  </div>
-                  <div className="candidate-competency-bar">
-                    <i
-                      style={{
-                        width: `${Math.min(100, Math.max(10, c.score))}%`,
-                      }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="candidate-coach-tip">
-              💡 <b>Gợi ý từ AI:</b> Luyện tập trả lời theo phương pháp STAR
-              (Situation - Task - Action - Result) kết hợp số liệu định lượng
-              (metrics, throughput) để nâng band điểm lên mức xuất sắc.
-            </div>
-          </section>
-
-          {/* Section 4: Prep Checklist */}
-          <section className="candidate-card-box">
-            <div className="candidate-section-header">
-              <h2>Quy trình chuẩn bị</h2>
-            </div>
-            <p
-              style={{
-                fontSize: "12px",
-                color: "#64748b",
-                margin: "0 0 12px",
-                lineHeight: 1.5,
-              }}
-            >
-              Các bước tối ưu để đạt kết quả phỏng vấn tốt nhất.
-            </p>
-            <div>
-              <div className="candidate-checklist-item">
-                <span className="candidate-checklist-icon done">
-                  <Check size={13} />
-                </span>
-                <div style={{ flex: 1 }}>
-                  <b>Hồ sơ CV ứng tuyển</b>
-                  <p
-                    style={{
-                      margin: "2px 0 0",
-                      fontSize: "11px",
-                      color: "#64748b",
-                    }}
-                  >
-                    {(cvAnalysis as any)?.file_name
-                      ? `Đã nạp: ${(cvAnalysis as any).file_name}`
-                      : cvAnalysis?.job_context?.title
-                        ? `Đã liên kết vị trí: ${cvAnalysis.job_context.title}`
-                        : "Sẵn sàng phân tích theo từng vị trí"}
-                  </p>
-                </div>
-              </div>
-              <div className="candidate-checklist-item">
-                <span className="candidate-checklist-icon done">
-                  <Check size={13} />
-                </span>
-                <div style={{ flex: 1 }}>
-                  <b>Thiết bị Camera & Microphone</b>
-                  <p
-                    style={{
-                      margin: "2px 0 0",
-                      fontSize: "11px",
-                      color: "#64748b",
-                    }}
-                  >
-                    STT GPU Whisper & giám sát ánh nhìn MediaPipe
-                  </p>
-                </div>
-              </div>
-              <div className="candidate-checklist-item">
-                <span
-                  className={`candidate-checklist-icon ${hasAnsweredSession ? "done" : "pending"}`}
-                >
-                  <Check size={13} />
-                </span>
-                <div style={{ flex: 1 }}>
-                  <b>Luyện tập phiên phỏng vấn thử</b>
-                  <p
-                    style={{
-                      margin: "2px 0 0",
-                      fontSize: "11px",
-                      color: "#64748b",
-                    }}
-                  >
-                    {hasAnsweredSession
-                      ? `Đã hoàn thành ${completedCount} phiên phỏng vấn`
-                      : "Chưa hoàn thành phiên nào"}
-                  </p>
-                </div>
-              </div>
-            </div>
-            <button
-              className="outline"
-              style={{
-                width: "100%",
-                marginTop: "16px",
-                justifyContent: "center",
-                height: "38px",
-              }}
-              onClick={() => nav("/app/interviews/device-check")}
-            >
-              Kiểm tra thiết bị & phòng chờ
-            </button>
-          </section>
-        </div>
+            />
+          </div>
+          <div className="lg:col-span-4">
+            <VacanciesCard
+              title="Công việc đề xuất"
+              items={vacancyItems}
+              totalCount={totalJobsCount}
+              onViewAll={() => nav("/app/jobs")}
+            />
+          </div>
+        </section>
       </div>
     </CandidateLayout>
   );
 }
 
-function CandidatePagination({
-  currentPage,
-  totalPages,
-  totalItems,
-  pageSize,
-  itemLabel = "kết quả",
-  onPageChange,
-}: {
-  currentPage: number;
-  totalPages: number;
-  totalItems: number;
-  pageSize: number;
-  itemLabel?: string;
-  onPageChange: (page: number) => void;
-}) {
-  if (totalItems <= pageSize) return null;
-
-  const start = (currentPage - 1) * pageSize + 1;
-  const end = Math.min(currentPage * pageSize, totalItems);
-
-  const getPages = () => {
-    const pages: (number | string)[] = [];
-    if (totalPages <= 7) {
-      for (let i = 1; i <= totalPages; i++) pages.push(i);
-    } else {
-      pages.push(1);
-      if (currentPage > 3) pages.push("...");
-      const low = Math.max(2, currentPage - 1);
-      const high = Math.min(totalPages - 1, currentPage + 1);
-      for (let i = low; i <= high; i++) {
-        if (!pages.includes(i)) pages.push(i);
-      }
-      if (currentPage < totalPages - 2) pages.push("...");
-      if (!pages.includes(totalPages)) pages.push(totalPages);
-    }
-    return pages;
-  };
-
-  return (
-    <div className="candidate-pagination-bar">
-      <span>
-        Hiển thị{" "}
-        <b>
-          {start}–{end}
-        </b>{" "}
-        trong tổng số <b>{totalItems}</b> {itemLabel}
-      </span>
-      <div className="candidate-pagination-controls">
-        <button
-          type="button"
-          disabled={currentPage === 1}
-          onClick={() => onPageChange(currentPage - 1)}
-          title="Trang trước"
-        >
-          <ChevronLeft size={15} />
-        </button>
-        {getPages().map((p, idx) =>
-          typeof p === "number" ? (
-            <button
-              type="button"
-              key={p}
-              className={p === currentPage ? "active" : ""}
-              onClick={() => onPageChange(p)}
-            >
-              {p}
-            </button>
-          ) : (
-            <span key={`dots-${idx}`} className="pagination-dots">
-              …
-            </span>
-          ),
-        )}
-        <button
-          type="button"
-          disabled={currentPage === totalPages}
-          onClick={() => onPageChange(currentPage + 1)}
-          title="Trang sau"
-        >
-          <ChevronRight size={15} />
-        </button>
-      </div>
-    </div>
-  );
-}
-
 export function CandidateJobs() {
   const nav = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState("");
   const [jobs, setJobs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = 6;
+  const currentPage = Math.max(
+    1,
+    parseInt(searchParams.get("page") || "1", 10) || 1,
+  );
+  const setCurrentPage = (page: number) => {
+    const next = new URLSearchParams(searchParams);
+    if (page <= 1) next.delete("page");
+    else next.set("page", String(page));
+    setSearchParams(next, { replace: false });
+  };
+  const pageSize = 9;
 
   useEffect(() => {
+    const cvAnalysis = loadCvAnalysis();
     fetchRealJobs()
       .then((realList) => {
         if (realList && realList.length > 0) {
-          const mapped = realList.map((j, i) => {
-            const matchScore = 80 + ((j.id * 7 + i * 3) % 18);
+          const mapped = realList.map((j) => {
             const lower = j.title.toLowerCase();
             const detectedSkills: string[] = [];
             if (lower.includes("frontend") || lower.includes("react"))
@@ -866,17 +500,21 @@ export function CandidateJobs() {
                 ? detectedSkills
                 : cleanSkills.length > 0
                   ? cleanSkills
-                  : ["Toàn thời gian", j.location || "Việt Nam"];
+                  : [];
+
+            const { matchPercentage } = calculateCvSkillMatch(
+              finalSkills,
+              j.title,
+              cvAnalysis,
+            );
 
             return {
               id: j.id,
               title: j.title,
               company: j.company || "Doanh nghiệp Công nghệ",
               location: j.location || "Việt Nam",
-              type: j.level
-                ? `Level: ${j.level.toUpperCase()}`
-                : "Toàn thời gian",
-              match: matchScore,
+              level: j.level || "",
+              match: matchPercentage,
               skills: finalSkills,
             };
           });
@@ -893,120 +531,149 @@ export function CandidateJobs() {
     (j) =>
       j.title.toLowerCase().includes(query.toLowerCase()) ||
       j.company.toLowerCase().includes(query.toLowerCase()) ||
+      j.location.toLowerCase().includes(query.toLowerCase()) ||
       (j.skills &&
         j.skills.some((s: string) =>
           s.toLowerCase().includes(query.toLowerCase()),
         )),
   );
 
-  const totalPages = Math.ceil(filteredJobs.length / pageSize) || 1;
+  const totalPages = Math.max(1, Math.ceil(filteredJobs.length / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
   const paginatedJobs = filteredJobs.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize,
+    (safePage - 1) * pageSize,
+    safePage * pageSize,
   );
 
   return (
     <CandidateLayout active="/app/jobs">
-      <CandidateHeader
-        title="Khám phá công việc"
-        desc="Tìm vị trí phù hợp với kỹ năng và định hướng của bạn."
+      <PageHeader
+        title="Công việc"
+        description={`Chọn vị trí để bắt đầu luyện phỏng vấn`}
       />
-      <div className="candidate-job-search">
-        <Search />
-        <input
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setCurrentPage(1);
-          }}
-          placeholder="Tìm kiếm vị trí hoặc kỹ năng..."
-        />
-      </div>
-      <div className="candidate-job-list">
-        {loading ? (
-          <div
-            style={{ textAlign: "center", padding: "48px", color: "#64748b" }}
-          >
-            Đang tải danh sách công việc...
-          </div>
-        ) : filteredJobs.length === 0 ? (
-          <div
-            style={{ textAlign: "center", padding: "40px", color: "#64748b" }}
-          >
-            {query
-              ? `Không tìm thấy công việc nào phù hợp với từ khóa "${query}"`
-              : "Chưa có công việc nào trong hệ thống."}
-          </div>
-        ) : (
-          paginatedJobs.map((j) => {
-            const companyInitials =
-              (j.company || "CT")
-                .split(" ")
-                .map((x: string) => x[0])
-                .filter(Boolean)
-                .slice(0, 3)
-                .join("")
-                .toUpperCase() || "CT";
 
-            return (
-              <article key={j.id}>
-                <div className="candidate-company">{companyInitials}</div>
-                <div className="candidate-job-info">
-                  <span>
-                    <b>{j.title}</b>
-                    <small>{j.company}</small>
-                  </span>
-                  <p>
-                    <i>
-                      <MapPin />
-                      {j.location}
-                    </i>
-                    <i>
-                      <Clock3 />
-                      {j.type}
-                    </i>
-                  </p>
+      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative w-full max-w-md">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+          <Input
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setCurrentPage(1);
+            }}
+            placeholder="Tìm kiếm công việc, công ty hoặc địa điểm..."
+            className="h-10 rounded-full bg-white pl-9"
+          />
+        </div>
+      </div>
+
+      {loading ? (
+        <Card className="rounded-2xl border border-zinc-200 bg-white p-12 text-center text-sm text-zinc-500">
+          Đang tải danh sách công việc...
+        </Card>
+      ) : paginatedJobs.length === 0 ? (
+        <Card className="rounded-2xl border border-zinc-200 bg-white p-12 text-center text-sm text-zinc-500">
+          {query
+            ? `Không tìm thấy công việc nào phù hợp với từ khóa "${query}"`
+            : "Chưa có công việc nào trong hệ thống."}
+        </Card>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {paginatedJobs.map((j) => {
+              const initials =
+                (j.company || j.title)
+                  .split(" ")
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .map((x: string) => x[0])
+                  .join("")
+                  .toUpperCase() || "JB";
+
+              return (
+                <Card
+                  key={j.id}
+                  className="flex flex-col justify-between rounded-2xl border border-zinc-200 bg-white p-5 transition-colors hover:border-zinc-300"
+                >
                   <div>
-                    {j.skills.map((s: string) => (
-                      <em key={s}>{s}</em>
-                    ))}
-                  </div>
-                </div>
-                <div className="candidate-match">
-                  <span>
-                    <b>{j.match}%</b>
-                    <small>phù hợp</small>
-                  </span>
-                  <button
-                    onClick={() => {
-                      sessionStorage.setItem(
-                        "candidate_selected_job_id",
-                        String(j.id),
-                      );
-                      nav("/app/interviews/new");
-                    }}
-                  >
-                    Phỏng vấn vị trí này <ArrowRight />
-                  </button>
-                </div>
-              </article>
-            );
-          })
-        )}
-      </div>
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-zinc-900 text-xs font-semibold text-white">
+                        {initials}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h4 className="m-0 line-clamp-2 text-[14px] font-semibold leading-snug text-zinc-950">
+                          {j.title}
+                        </h4>
+                        <p className="m-0 mt-1 truncate text-xs text-zinc-500">
+                          {j.company}
+                        </p>
+                      </div>
+                    </div>
 
-      {!loading && filteredJobs.length > pageSize && (
-        <CandidatePagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          totalItems={filteredJobs.length}
-          pageSize={pageSize}
-          itemLabel="công việc"
-          onPageChange={(p) => {
-            setCurrentPage(p);
-            window.scrollTo({ top: 0, behavior: "smooth" });
-          }}
-        />
+                    <div className="mt-3.5 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+                      <span className="inline-flex items-center gap-1">
+                        <MapPin className="h-3.5 w-3.5 text-zinc-400" />
+                        {j.location}
+                      </span>
+                      {j.level && (
+                        <Badge
+                          variant="outline"
+                          className="text-[11px] uppercase"
+                        >
+                          {j.level}
+                        </Badge>
+                      )}
+                    </div>
+
+                    {j.skills && j.skills.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        {j.skills.slice(0, 4).map((s: string) => (
+                          <Badge
+                            key={s}
+                            variant="secondary"
+                            className="text-[11px] font-normal"
+                          >
+                            {s}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mt-4 flex items-center justify-between border-t border-zinc-100 pt-3">
+                    <span className="text-xs text-zinc-400">ID #{j.id}</span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 rounded-full px-3 text-xs"
+                      onClick={() => {
+                        sessionStorage.setItem(
+                          "candidate_selected_job_id",
+                          String(j.id),
+                        );
+                        nav("/app/interviews/new");
+                      }}
+                    >
+                      Phỏng vấn <ArrowRight className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+
+          <Pagination
+            currentPage={safePage}
+            totalPages={totalPages}
+            totalItems={filteredJobs.length}
+            pageSize={pageSize}
+            itemLabel="vị trí tuyển dụng"
+            onPageChange={(p) => {
+              setCurrentPage(p);
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
+          />
+        </>
       )}
     </CandidateLayout>
   );
@@ -1018,7 +685,9 @@ export function CandidateCreateInterview() {
   const [file, setFile] = useState<File | null>(null);
   const [selectedCvId, setSelectedCvId] = useState<number | null>(null);
   const [cvMode, setCvMode] = useState<"upload" | "stored">("upload");
-  const [availableCvs, setAvailableCvs] = useState<any[]>([]);
+  const [availableCvs, setAvailableCvs] = useState<any[]>(() =>
+    getCachedDemoCvs(),
+  );
 
   const [selected, setSelected] = useState<number | null>(() => {
     const saved = sessionStorage.getItem("candidate_selected_job_id");
@@ -1027,8 +696,10 @@ export function CandidateCreateInterview() {
   const [query, setQuery] = useState("");
   const [drag, setDrag] = useState(false);
   const [started, setStarted] = useState(false);
-  const [jobList, setJobList] = useState<DbJob[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [jobList, setJobList] = useState<DbJob[]>(() => getCachedRealJobs());
+  const [loading, setLoading] = useState(
+    () => getCachedRealJobs().length === 0,
+  );
   const [creatingSession, setCreatingSession] = useState(false);
   const [sessionError, setSessionError] = useState("");
   const [numQuestions, setNumQuestions] = useState<number>(5);
@@ -1045,22 +716,11 @@ export function CandidateCreateInterview() {
   const jdInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    fetchRealJobs().then((res) => {
-      setJobList(res);
+    fetchDemoOptions().then(({ jobs, cvs }) => {
+      setJobList(jobs);
+      setAvailableCvs(cvs);
       setLoading(false);
     });
-    // Fetch available CVs from backend
-    fetch(
-      (import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000").replace(
-        /\/$/,
-        "",
-      ) + "/api/v1/interview/demo/options",
-    )
-      .then((r) => r.json())
-      .then((d) => {
-        if (Array.isArray(d.cvs)) setAvailableCvs(d.cvs);
-      })
-      .catch(() => {});
   }, []);
 
   const filtered = jobList.filter(
@@ -1149,6 +809,8 @@ export function CandidateCreateInterview() {
         jobId: jobMode === "system" ? selectedJob?.id : null,
         jdFile: jobMode === "upload" ? jdFile : null,
         jdText: jobMode === "upload" ? customJdText : null,
+        jobTitle: effectiveJob.title,
+        jobCompany: effectiveJob.company,
         maxQuestions: numQuestions,
         userId: user?.user_id_num || user?.id,
       });
@@ -1200,44 +862,60 @@ export function CandidateCreateInterview() {
   if (started) {
     return (
       <CandidateLayout active="/app/interviews/new">
-        <div className="success-page">
-          <div className="success-mark">
-            <Check />
-          </div>
-          <span className="pill">
-            <Sparkles size={13} /> MÔ HÌNH AI ĐÃ SẴN SÀNG
-          </span>
-          <h1>Bộ câu hỏi đã được tạo riêng cho bạn!</h1>
-          <p>
-            Mô hình 1 (Question Ranker V2) đã phân tích hồ sơ CV của bạn và đối
-            chiếu với vị trí <b>{effectiveJob?.title}</b> (
-            {effectiveJob?.company}) để chọn ra các câu hỏi sát thực tế nhất.
-          </p>
-          <div className="progress-box">
-            <div>
-              <span>Hồ sơ ứng viên & Vị trí</span>
-              <b>Hoàn tất</b>
+        <div className="mx-auto max-w-xl py-8">
+          <Card className="rounded-2xl border border-zinc-200 bg-white p-8 text-center">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-emerald-200 bg-emerald-50 text-emerald-600">
+              <Check className="h-7 w-7" />
             </div>
-            <div className="progress">
-              <i />
+            <Badge variant="success" className="mb-3 rounded-full px-3 py-1">
+              <CheckCircle2 className="h-3.5 w-3.5" /> SẴN SÀNG PHỎNG VẤN
+            </Badge>
+            <h1 className="m-0 text-2xl font-bold tracking-tight text-zinc-950">
+              Bộ câu hỏi đã được tạo riêng cho bạn
+            </h1>
+            <p className="mt-2.5 text-sm leading-relaxed text-zinc-500">
+              Hệ thống đã phân tích hồ sơ CV của bạn và đối chiếu với vị trí{" "}
+              <b className="text-zinc-900">{effectiveJob?.title}</b> (
+              {effectiveJob?.company}) để chuẩn bị bộ {numQuestions} câu hỏi sát
+              thực tế nhất.
+            </p>
+
+            <div className="mt-6 space-y-3 rounded-xl border border-zinc-200 bg-zinc-50/70 p-4 text-left">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-zinc-500">Hồ sơ ứng viên & Vị trí</span>
+                <span className="font-semibold text-emerald-600">Hoàn tất</span>
+              </div>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-200">
+                <div className="h-full w-full rounded-full bg-emerald-600" />
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-zinc-500">Bộ câu hỏi AI</span>
+                <span className="font-semibold text-zinc-900">
+                  Đã tuyển chọn ({numQuestions} câu)
+                </span>
+              </div>
             </div>
-            <div>
-              <span>Bộ câu hỏi AI</span>
-              <b className="working">Đã tuyển chọn</b>
+
+            <div className="mt-6 flex flex-col gap-2.5">
+              <Button
+                variant="brand"
+                size="lg"
+                className="h-11 w-full"
+                onClick={() => nav("/app/interviews/device-check")}
+              >
+                Vào kiểm tra thiết bị & phỏng vấn ngay{" "}
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="lg"
+                className="h-10 w-full"
+                onClick={() => setStarted(false)}
+              >
+                Quay lại chỉnh sửa hồ sơ
+              </Button>
             </div>
-          </div>
-          <button
-            className="primary full"
-            onClick={() => nav("/app/interviews/device-check")}
-          >
-            Vào kiểm tra thiết bị & phỏng vấn ngay <ArrowRight size={17} />
-          </button>
-          <button
-            className="secondary success-back"
-            onClick={() => setStarted(false)}
-          >
-            Quay lại chỉnh sửa hồ sơ
-          </button>
+          </Card>
         </div>
       </CandidateLayout>
     );
@@ -1245,109 +923,109 @@ export function CandidateCreateInterview() {
 
   return (
     <CandidateLayout active="/app/interviews/new">
-      <CandidateHeader
+      <PageHeader
         title="Tạo phỏng vấn mới"
-        desc="Chuẩn bị buổi phỏng vấn"
+        description="Tải lên CV và chọn vị trí tuyển dụng để bắt đầu buổi phỏng vấn."
       />
-      <div className="stepper">
-        <div className="done">
-          <i>
-            <Check />
-          </i>
-          <span>
-            <b>Hồ sơ ứng viên</b>
-            <small>Tải lên CV</small>
-          </span>
+
+      {/* Stepper */}
+      <Card className="mb-6 rounded-2xl border border-zinc-200 bg-white px-5 py-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          {[
+            {
+              step: 1,
+              title: "Hồ sơ ứng viên",
+              subtitle: "Tải lên hoặc chọn CV",
+              done: hasCvSelected,
+              active: !hasCvSelected,
+            },
+            {
+              step: 2,
+              title: "Chọn công việc",
+              subtitle: "Vị trí ứng tuyển",
+              done: hasJobSelected,
+              active: hasCvSelected && !hasJobSelected,
+            },
+            {
+              step: 3,
+              title: "Xác nhận",
+              subtitle: "Sẵn sàng bắt đầu",
+              done: false,
+              active: hasCvSelected && hasJobSelected,
+            },
+          ].map((item) => (
+            <div key={item.step} className="flex items-center gap-3">
+              <div
+                className={
+                  item.done
+                    ? "flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-xs font-semibold text-white"
+                    : item.active
+                      ? "flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-xs font-semibold text-white"
+                      : "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-zinc-200 bg-zinc-50 text-xs font-semibold text-zinc-500"
+                }
+              >
+                {item.done ? <Check className="h-4 w-4" /> : item.step}
+              </div>
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-zinc-950">
+                  {item.title}
+                </div>
+                <div className="text-xs text-zinc-500">{item.subtitle}</div>
+              </div>
+            </div>
+          ))}
         </div>
-        <em />
-        <div
-          className={hasJobSelected ? "done" : hasCvSelected ? "current" : ""}
-        >
-          <i>2</i>
-          <span>
-            <b>Chọn công việc</b>
-            <small>Vị trí ứng tuyển</small>
-          </span>
-        </div>
-        <em />
-        <div className={hasJobSelected && hasCvSelected ? "current" : ""}>
-          <i>3</i>
-          <span>
-            <b>Xác nhận</b>
-            <small>Sẵn sàng bắt đầu</small>
-          </span>
-        </div>
-      </div>
-      <div className="create-grid">
-        <div className="create-main">
+      </Card>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+        <div className="space-y-5 lg:col-span-8">
           {/* Section 01: CV */}
-          <section className="form-card">
-            <div className="card-heading">
-              <span className="number">01</span>
-              <div>
-                <h2>Hồ sơ ứng viên (CV)</h2>
-                <p>
-                  Tải file CV của bạn hoặc chọn từ danh sách CV có sẵn trong hệ
-                  thống.
-                </p>
+          <Card className="rounded-2xl border border-zinc-200 bg-white p-6">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-900 text-xs font-semibold text-white">
+                  01
+                </span>
+                <div>
+                  <h2 className="m-0 text-base font-semibold text-zinc-950">
+                    Hồ sơ ứng viên
+                  </h2>
+                  <p className="m-0 mt-0.5 text-xs text-zinc-500">
+                    Tải file CV của bạn hoặc chọn từ danh sách CV có sẵn trong
+                    hệ thống.
+                  </p>
+                </div>
               </div>
               {hasCvSelected && (
-                <span className="complete">
-                  <Check /> Hoàn tất
-                </span>
+                <Badge variant="success" className="shrink-0 rounded-full">
+                  <Check className="h-3 w-3" /> Hoàn tất
+                </Badge>
               )}
             </div>
 
-            {/* Toggle CV Mode */}
-            <div
-              style={{
-                display: "flex",
-                gap: "8px",
-                marginBottom: "14px",
-                padding: "4px",
-                background: "#f3f4f6",
-                borderRadius: "10px",
-                width: "fit-content",
-              }}
+            <Tabs
+              value={cvMode}
+              onValueChange={(v) => setCvMode(v as "upload" | "stored")}
+              className="mb-4"
             >
-              <button
-                type="button"
-                style={{
-                  padding: "6px 14px",
-                  borderRadius: "8px",
-                  border: "none",
-                  fontSize: "13px",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  background: cvMode === "upload" ? "#5b5bd6" : "transparent",
-                  color: cvMode === "upload" ? "#fff" : "#4b5563",
-                }}
-                onClick={() => setCvMode("upload")}
-              >
-                Tải file CV từ máy tính
-              </button>
-              <button
-                type="button"
-                style={{
-                  padding: "6px 14px",
-                  borderRadius: "8px",
-                  border: "none",
-                  fontSize: "13px",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  background: cvMode === "stored" ? "#5b5bd6" : "transparent",
-                  color: cvMode === "stored" ? "#fff" : "#4b5563",
-                }}
-                onClick={() => setCvMode("stored")}
-              >
-                Chọn CV mẫu có sẵn ({availableCvs.length})
-              </button>
-            </div>
+              <TabsList>
+                <TabsTrigger value="upload">
+                  Tải file CV từ máy tính
+                </TabsTrigger>
+                <TabsTrigger value="stored">
+                  Chọn CV mẫu có sẵn ({availableCvs.length})
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
 
             {cvMode === "upload" ? (
               !file ? (
                 <div
-                  className={`dropzone ${drag ? "drag" : ""}`}
+                  className={
+                    drag
+                      ? "flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-emerald-500 bg-emerald-50/40 px-6 py-10 text-center transition-colors"
+                      : "flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-zinc-200 bg-zinc-50/60 px-6 py-10 text-center transition-colors hover:border-zinc-300 hover:bg-zinc-50"
+                  }
                   onDragOver={(e) => {
                     e.preventDefault();
                     setDrag(true);
@@ -1360,239 +1038,216 @@ export function CandidateCreateInterview() {
                     ref={input}
                     type="file"
                     accept=".pdf,.doc,.docx,.txt"
+                    className="hidden"
                     onChange={(e) => {
                       setFile(e.target.files?.[0] || null);
                       setCvMode("upload");
                     }}
                   />
-                  <span>
-                    <UploadCloud />
-                  </span>
-                  <h3>Kéo & thả CV của bạn vào đây</h3>
-                  <p>
-                    hoặc <b>chọn tệp từ máy tính</b>
+                  <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-700">
+                    <UploadCloud className="h-5 w-5" />
+                  </div>
+                  <h3 className="m-0 text-sm font-semibold text-zinc-950">
+                    Kéo & thả CV của bạn vào đây
+                  </h3>
+                  <p className="m-0 mt-1 text-xs text-zinc-500">
+                    hoặc{" "}
+                    <span className="font-semibold text-emerald-600">
+                      chọn tệp từ máy tính
+                    </span>
                   </p>
-                  <small>Hỗ trợ PDF, DOCX, TXT · Tối đa 10MB</small>
+                  <small className="mt-2 text-[11px] text-zinc-400">
+                    Hỗ trợ PDF, DOCX, TXT · Tối đa 10MB
+                  </small>
                 </div>
               ) : (
-                <div className="file-item">
-                  <span className="pdf">
-                    <FileText />
-                  </span>
-                  <div>
-                    <b>{file.name}</b>
-                    <small>
-                      {(file.size / 1024 / 1024).toFixed(1)} MB · Sẵn sàng để AI
-                      đọc & sinh câu hỏi riêng
-                    </small>
+                <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50/40 p-3.5">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-600 text-white">
+                    <FileText className="h-5 w-5" />
                   </div>
-                  <span className="file-ok">
-                    <Check />
-                  </span>
-                  <button onClick={() => setFile(null)}>
-                    <X />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-semibold text-zinc-950">
+                      {file.name}
+                    </div>
+                    <div className="text-xs text-zinc-500">
+                      {(file.size / 1024 / 1024).toFixed(2)} MB · Sẵn sàng để AI
+                      đọc & sinh câu hỏi riêng
+                    </div>
+                  </div>
+                  <Badge variant="success" className="rounded-full">
+                    <Check className="h-3 w-3" /> Sẵn sàng
+                  </Badge>
+                  <button
+                    type="button"
+                    onClick={() => setFile(null)}
+                    aria-label="Xóa tệp CV"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg border-0 bg-transparent text-zinc-400 hover:bg-zinc-200/70 hover:text-zinc-900 cursor-pointer"
+                  >
+                    <X className="h-4 w-4" />
                   </button>
                 </div>
               )
             ) : (
-              <div style={{ padding: "8px 0" }}>
-                <label
-                  style={{
-                    display: "block",
-                    fontSize: "13px",
-                    fontWeight: 600,
-                    marginBottom: "6px",
-                  }}
-                >
-                  Chọn hồ sơ CV lưu sẵn:
-                </label>
-                <select
-                  value={selectedCvId || ""}
-                  onChange={(e) =>
-                    setSelectedCvId(
-                      e.target.value ? parseInt(e.target.value, 10) : null,
-                    )
+              <div className="space-y-1.5">
+                <Label htmlFor="stored-cv-select">Chọn hồ sơ CV lưu sẵn</Label>
+                <Select
+                  value={selectedCvId ? String(selectedCvId) : ""}
+                  onValueChange={(val) =>
+                    setSelectedCvId(val ? parseInt(val, 10) : null)
                   }
-                  style={{
-                    width: "100%",
-                    padding: "10px 14px",
-                    borderRadius: "8px",
-                    border: "1px solid #d1d5db",
-                    fontSize: "14px",
-                    outline: "none",
-                  }}
                 >
-                  <option value="">-- Chọn một CV từ kho dữ liệu --</option>
-                  {availableCvs.map((c) => (
-                    <option key={c.cv_id} value={c.cv_id}>
-                      {c.file_name} (ID: {c.cv_id})
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger
+                    id="stored-cv-select"
+                    className="h-10 rounded-lg text-sm"
+                  >
+                    <SelectValue placeholder="-- Chọn một CV từ kho dữ liệu --" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableCvs.map((c) => (
+                      <SelectItem key={c.cv_id} value={String(c.cv_id)}>
+                        {c.file_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             )}
-          </section>
+          </Card>
 
           {/* Section 02: Job Selection or Custom Upload */}
-          <section className="form-card">
-            <div className="card-heading">
-              <span className="number">02</span>
-              <div>
-                <h2>Chọn vị trí tuyển dụng</h2>
-                <p>
-                  Chọn công việc có sẵn từ hệ thống hoặc tải lên bản mô tả công
-                  việc (JD) bên ngoài.
-                </p>
+          <Card className="rounded-2xl border border-zinc-200 bg-white p-6">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-900 text-xs font-semibold text-white">
+                  02
+                </span>
+                <div>
+                  <h2 className="m-0 text-base font-semibold text-zinc-950">
+                    Chọn vị trí tuyển dụng
+                  </h2>
+                  <p className="m-0 mt-0.5 text-xs text-zinc-500">
+                    Chọn công việc có sẵn từ hệ thống hoặc tải lên bản mô tả
+                    công việc (JD) bên ngoài.
+                  </p>
+                </div>
               </div>
               {hasJobSelected && (
-                <span className="complete">
-                  <Check /> Hoàn tất
-                </span>
+                <Badge variant="success" className="shrink-0 rounded-full">
+                  <Check className="h-3 w-3" /> Hoàn tất
+                </Badge>
               )}
             </div>
 
-            {/* Switch Tabs between System Jobs and Custom Upload */}
-            <div
-              style={{
-                display: "flex",
-                gap: "8px",
-                marginBottom: "16px",
-                padding: "4px",
-                background: "#f3f4f6",
-                borderRadius: "10px",
-                width: "fit-content",
-              }}
+            <Tabs
+              value={jobMode}
+              onValueChange={(v) => setJobMode(v as "system" | "upload")}
+              className="mb-4"
             >
-              <button
-                type="button"
-                style={{
-                  padding: "8px 16px",
-                  borderRadius: "8px",
-                  border: "none",
-                  fontSize: "13px",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  background: jobMode === "system" ? "#5b5bd6" : "transparent",
-                  color: jobMode === "system" ? "#fff" : "#4b5563",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "6px",
-                  transition: "all 0.2s",
-                }}
-                onClick={() => setJobMode("system")}
-              >
-                <BriefcaseBusiness size={15} />
-                Chọn từ kho dữ liệu ({jobList.length})
-              </button>
-
-              <button
-                type="button"
-                style={{
-                  padding: "8px 16px",
-                  borderRadius: "8px",
-                  border: "none",
-                  fontSize: "13px",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  background: jobMode === "upload" ? "#5b5bd6" : "transparent",
-                  color: jobMode === "upload" ? "#fff" : "#4b5563",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "6px",
-                  transition: "all 0.2s",
-                }}
-                onClick={() => setJobMode("upload")}
-              >
-                <UploadCloud size={15} />
-                Tải lên / Nhập Job ngoài
-              </button>
-            </div>
+              <TabsList>
+                <TabsTrigger value="system" className="gap-1.5">
+                  <BriefcaseBusiness className="h-3.5 w-3.5" />
+                  Chọn từ kho dữ liệu ({jobList.length})
+                </TabsTrigger>
+                <TabsTrigger value="upload" className="gap-1.5">
+                  <UploadCloud className="h-3.5 w-3.5" />
+                  Tải lên / Nhập Job ngoài
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
 
             {jobMode === "system" ? (
-              <>
-                <div className="job-search">
-                  <Search />
-                  <input
+              <div className="space-y-3">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+                  <Input
                     placeholder="Tìm kiếm theo tên vị trí, công ty hoặc địa điểm..."
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
+                    className="h-10 rounded-full pl-9"
                   />
                 </div>
                 {loading ? (
-                  <div
-                    style={{
-                      padding: "36px",
-                      textAlign: "center",
-                      color: "#6b7280",
-                    }}
-                  >
-                    Đang nạp danh sách công việc từ kho dữ liệu...
+                  <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50/70 py-10 text-center text-sm text-zinc-500">
+                    Đang tải danh sách công việc...
                   </div>
                 ) : (
-                  <div
-                    className="job-list"
-                    style={{ maxHeight: "420px", overflowY: "auto" }}
-                  >
-                    {filtered.map((job) => (
-                      <button
-                        key={job.id}
-                        type="button"
-                        className={`job-option ${selected === job.id ? "selected" : ""}`}
-                        onClick={() => setSelected(job.id)}
-                      >
-                        <span
-                          className="job-icon"
-                          style={{ background: job.accent }}
+                  <div className="max-h-[380px] space-y-2.5 overflow-y-auto pr-1">
+                    {filtered.map((job) => {
+                      const isSel = selected === job.id;
+                      const initials = (job.company || job.title)
+                        .split(" ")
+                        .filter(Boolean)
+                        .slice(0, 2)
+                        .map((x) => x[0])
+                        .join("")
+                        .toUpperCase();
+                      const cleanSkills = (job.skills || []).filter(
+                        (s) => s && s !== "Dữ liệu thực",
+                      );
+                      return (
+                        <button
+                          key={job.id}
+                          type="button"
+                          onClick={() => setSelected(job.id)}
+                          className={
+                            isSel
+                              ? "flex w-full items-center gap-3.5 rounded-xl border-2 border-emerald-600 bg-emerald-50/40 p-3.5 text-left transition-colors cursor-pointer"
+                              : "flex w-full items-center gap-3.5 rounded-xl border border-zinc-200 bg-white p-3.5 text-left transition-colors hover:border-zinc-300 hover:bg-zinc-50/60 cursor-pointer"
+                          }
                         >
-                          {job.title
-                            .split(" ")
-                            .slice(0, 2)
-                            .map((x) => x[0])
-                            .join("")}
-                        </span>
-                        <span className="job-info">
-                          <b>{job.title}</b>
-                          <small>
-                            {job.company} · {job.location}
-                          </small>
-                          <span>
-                            {job.skills.map((s) => (
-                              <i key={s}>{s}</i>
-                            ))}
-                          </span>
-                        </span>
-                        <i className="radio">
-                          {selected === job.id && <span />}
-                        </i>
-                      </button>
-                    ))}
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-zinc-900 text-xs font-semibold text-white">
+                            {initials || "JB"}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm font-semibold text-zinc-950">
+                              {job.title}
+                            </div>
+                            <div className="mt-0.5 truncate text-xs text-zinc-500">
+                              {job.company} · {job.location}
+                            </div>
+                            {cleanSkills.length > 0 && (
+                              <div className="mt-2 flex flex-wrap gap-1">
+                                {cleanSkills.slice(0, 4).map((s) => (
+                                  <Badge
+                                    key={s}
+                                    variant="secondary"
+                                    className="text-[10px] font-normal"
+                                  >
+                                    {s}
+                                  </Badge>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          <div
+                            className={
+                              isSel
+                                ? "flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white"
+                                : "h-5 w-5 shrink-0 rounded-full border border-zinc-300 bg-white"
+                            }
+                          >
+                            {isSel && <Check className="h-3 w-3" />}
+                          </div>
+                        </button>
+                      );
+                    })}
                     {filtered.length === 0 && (
-                      <div
-                        style={{
-                          padding: "24px",
-                          textAlign: "center",
-                          color: "#888",
-                        }}
-                      >
+                      <div className="rounded-xl border border-dashed border-zinc-200 py-8 text-center text-sm text-zinc-500">
                         Không tìm thấy công việc phù hợp với từ khóa "{query}".
                       </div>
                     )}
                   </div>
                 )}
-              </>
+              </div>
             ) : (
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "16px",
-                }}
-              >
-                {/* Drag and Drop JD File */}
+              <div className="space-y-4">
                 {!jdFile ? (
                   <div
-                    className={`dropzone ${jdDrag ? "drag" : ""}`}
-                    style={{ padding: "24px", borderStyle: "dashed" }}
+                    className={
+                      jdDrag
+                        ? "flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-emerald-500 bg-emerald-50/40 px-6 py-7 text-center transition-colors"
+                        : "flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-zinc-200 bg-zinc-50/60 px-6 py-7 text-center transition-colors hover:border-zinc-300 hover:bg-zinc-50"
+                    }
                     onDragOver={(e) => {
                       e.preventDefault();
                       setJdDrag(true);
@@ -1610,169 +1265,110 @@ export function CandidateCreateInterview() {
                       ref={jdInputRef}
                       type="file"
                       accept=".pdf,.doc,.docx,.txt"
-                      style={{ display: "none" }}
+                      className="hidden"
                       onChange={(e) =>
                         handleJdFileChange(e.target.files?.[0] || null)
                       }
                     />
-                    <span>
-                      <UploadCloud size={24} />
-                    </span>
-                    <h3 style={{ fontSize: "15px" }}>
+                    <UploadCloud className="mb-2 h-6 w-6 text-zinc-500" />
+                    <div className="text-sm font-semibold text-zinc-900">
                       Kéo & thả file JD (Mô tả công việc) vào đây
-                    </h3>
-                    <p style={{ margin: "4px 0" }}>
-                      hoặc <b>chọn tệp từ máy tính</b>
-                    </p>
-                    <small>Hỗ trợ PDF, DOCX, TXT · Tối đa 10MB</small>
+                    </div>
+                    <div className="mt-0.5 text-xs text-zinc-500">
+                      hoặc{" "}
+                      <span className="font-semibold text-emerald-600">
+                        chọn tệp từ máy tính
+                      </span>{" "}
+                      (PDF, DOCX, TXT · Tối đa 10MB)
+                    </div>
                   </div>
                 ) : (
-                  <div className="file-item">
-                    <span className="pdf">
-                      <FileText />
-                    </span>
-                    <div>
-                      <b>{jdFile.name}</b>
-                      <small>
-                        {(jdFile.size / 1024 / 1024).toFixed(1)} MB · File JD đã
-                        tiếp nhận
-                      </small>
+                  <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50/40 p-3.5">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-600 text-white">
+                      <FileText className="h-5 w-5" />
                     </div>
-                    <span className="file-ok">
-                      <Check />
-                    </span>
-                    <button type="button" onClick={() => setJdFile(null)}>
-                      <X />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-semibold text-zinc-950">
+                        {jdFile.name}
+                      </div>
+                      <div className="text-xs text-zinc-500">
+                        {(jdFile.size / 1024 / 1024).toFixed(2)} MB · File JD đã
+                        tiếp nhận
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setJdFile(null)}
+                      aria-label="Xóa tệp JD"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg border-0 bg-transparent text-zinc-400 hover:bg-zinc-200/70 hover:text-zinc-900 cursor-pointer"
+                    >
+                      <X className="h-4 w-4" />
                     </button>
                   </div>
                 )}
 
-                {/* Title & Company Input Fields */}
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr 1fr",
-                    gap: "14px",
-                  }}
-                >
-                  <div>
-                    <label
-                      style={{
-                        display: "block",
-                        fontSize: "13px",
-                        fontWeight: 600,
-                        color: "#374151",
-                        marginBottom: "6px",
-                      }}
-                    >
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="custom-job-title">
                       Tên vị trí tuyển dụng{" "}
-                      <span style={{ color: "#ef4444" }}>*</span>
-                    </label>
-                    <input
+                      <span className="text-red-500">*</span>
+                    </Label>
+                    <Input
+                      id="custom-job-title"
                       type="text"
                       placeholder="VD: Senior Backend Engineer, AI Specialist..."
                       value={customTitle}
                       onChange={(e) => setCustomTitle(e.target.value)}
-                      style={{
-                        width: "100%",
-                        padding: "10px 14px",
-                        borderRadius: "8px",
-                        border: "1px solid #d1d5db",
-                        fontSize: "14px",
-                        outline: "none",
-                        boxSizing: "border-box",
-                      }}
                     />
                   </div>
-
-                  <div>
-                    <label
-                      style={{
-                        display: "block",
-                        fontSize: "13px",
-                        fontWeight: 600,
-                        color: "#374151",
-                        marginBottom: "6px",
-                      }}
-                    >
+                  <div className="space-y-1.5">
+                    <Label htmlFor="custom-job-company">
                       Tên công ty / Doanh nghiệp
-                    </label>
-                    <input
+                    </Label>
+                    <Input
+                      id="custom-job-company"
                       type="text"
-                      placeholder="VD: Google, VNG, VinAI, FPT..."
+                      placeholder="VD: VNG, VinAI, FPT..."
                       value={customCompany}
                       onChange={(e) => setCustomCompany(e.target.value)}
-                      style={{
-                        width: "100%",
-                        padding: "10px 14px",
-                        borderRadius: "8px",
-                        border: "1px solid #d1d5db",
-                        fontSize: "14px",
-                        outline: "none",
-                        boxSizing: "border-box",
-                      }}
                     />
                   </div>
                 </div>
 
-                {/* JD Textarea */}
-                <div>
-                  <label
-                    style={{
-                      display: "block",
-                      fontSize: "13px",
-                      fontWeight: 600,
-                      color: "#374151",
-                      marginBottom: "6px",
-                    }}
-                  >
-                    Nội dung mô tả công việc (Dán nội dung JD hoặc yêu cầu tuyển
-                    dụng)
-                  </label>
-                  <textarea
+                <div className="space-y-1.5">
+                  <Label htmlFor="custom-jd-text">
+                    Nội dung mô tả công việc (JD)
+                  </Label>
+                  <Textarea
+                    id="custom-jd-text"
                     rows={4}
                     placeholder="Dán nội dung chi tiết bài tuyển dụng, trách nhiệm hoặc kỹ năng yêu cầu vào đây để AI phân tích..."
                     value={customJdText}
                     onChange={(e) => setCustomJdText(e.target.value)}
-                    style={{
-                      width: "100%",
-                      padding: "12px 14px",
-                      borderRadius: "8px",
-                      border: "1px solid #d1d5db",
-                      fontSize: "13px",
-                      lineHeight: 1.5,
-                      resize: "vertical",
-                      outline: "none",
-                      fontFamily: "inherit",
-                      boxSizing: "border-box",
-                    }}
                   />
                 </div>
               </div>
             )}
-          </section>
+          </Card>
 
           {/* Section 03: Số lượng câu hỏi phỏng vấn */}
-          <section className="form-card">
-            <div className="card-heading">
-              <span className="number">03</span>
+          <Card className="rounded-2xl border border-zinc-200 bg-white p-6">
+            <div className="mb-4 flex items-start gap-3">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-900 text-xs font-semibold text-white">
+                03
+              </span>
               <div>
-                <h2>Số lượng câu hỏi phỏng vấn</h2>
-                <p>
+                <h2 className="m-0 text-base font-semibold text-zinc-950">
+                  Số lượng câu hỏi phỏng vấn
+                </h2>
+                <p className="m-0 mt-0.5 text-xs text-zinc-500">
                   Chọn số lượng câu hỏi để AI sinh và điều phối toàn bộ buổi
-                  phỏng vấn (Hỏi - Trả lời - Tiếp tục)
+                  phỏng vấn.
                 </p>
               </div>
             </div>
 
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
-                gap: "12px",
-                marginTop: "16px",
-              }}
-            >
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               {[
                 {
                   count: 3,
@@ -1796,7 +1392,7 @@ export function CandidateCreateInterview() {
                   count: 10,
                   label: "10 câu",
                   time: "~45 phút",
-                  desc: "Toàn diện tất cả kỹ năng",
+                  desc: "Toàn diện kỹ năng",
                 },
               ].map((opt) => {
                 const active = numQuestions === opt.count;
@@ -1805,163 +1401,159 @@ export function CandidateCreateInterview() {
                     key={opt.count}
                     type="button"
                     onClick={() => setNumQuestions(opt.count)}
-                    style={{
-                      padding: "14px 12px",
-                      borderRadius: "12px",
-                      border: active
-                        ? "2px solid #5b5bd6"
-                        : "1px solid #e5e7eb",
-                      background: active ? "#f5f3ff" : "#ffffff",
-                      cursor: "pointer",
-                      textAlign: "left",
-                      transition: "all 0.15s ease",
-                      boxShadow: active
-                        ? "0 4px 12px rgba(91, 91, 214, 0.15)"
-                        : "none",
-                    }}
+                    className={
+                      active
+                        ? "rounded-xl border-2 border-emerald-600 bg-emerald-50/50 p-3.5 text-left transition-colors cursor-pointer"
+                        : "rounded-xl border border-zinc-200 bg-white p-3.5 text-left transition-colors hover:border-zinc-300 hover:bg-zinc-50 cursor-pointer"
+                    }
                   >
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        marginBottom: "4px",
-                      }}
-                    >
-                      <b
-                        style={{
-                          fontSize: "16px",
-                          color: active ? "#5b5bd6" : "#111827",
-                        }}
+                    <div className="flex items-center justify-between">
+                      <span
+                        className={
+                          active
+                            ? "text-base font-bold text-emerald-700"
+                            : "text-base font-bold text-zinc-950"
+                        }
                       >
                         {opt.label}
-                      </b>
-                      {active && <Check size={16} color="#5b5bd6" />}
+                      </span>
+                      {active && <Check className="h-4 w-4 text-emerald-600" />}
                     </div>
-                    <span
-                      style={{
-                        display: "block",
-                        fontSize: "12px",
-                        fontWeight: 600,
-                        color: "#6b7280",
-                        marginBottom: "2px",
-                      }}
-                    >
+                    <div className="mt-1 text-xs font-medium text-zinc-600">
                       {opt.time}
-                    </span>
-                    <small
-                      style={{
-                        display: "block",
-                        fontSize: "11px",
-                        color: "#9ca3af",
-                        lineHeight: 1.3,
-                      }}
-                    >
+                    </div>
+                    <div className="mt-0.5 text-[11px] text-zinc-400">
                       {opt.desc}
-                    </small>
+                    </div>
                   </button>
                 );
               })}
             </div>
-          </section>
+          </Card>
         </div>
 
         {/* Aside Summary Card */}
-        <aside className="summary-card">
-          <span className="pill">
-            <Sparkles size={13} /> TÓM TẮT
-          </span>
-          <h3>Buổi phỏng vấn của bạn</h3>
-          <div className="summary-row">
-            <small>HỒ SƠ</small>
-            {file ? (
-              <div>
-                <span className="pdf tiny">
-                  <FileText />
-                </span>
-                <p>
-                  <b>{file.name}</b>
-                  <small>Tệp tải lên</small>
-                </p>
-              </div>
-            ) : selectedCvId ? (
-              <div>
-                <span className="pdf tiny">
-                  <FileText />
-                </span>
-                <p>
-                  <b>
-                    {
-                      availableCvs.find((c) => c.cv_id === selectedCvId)
-                        ?.file_name
-                    }
-                  </b>
-                  <small>CV từ hệ thống</small>
-                </p>
-              </div>
-            ) : (
-              <p className="empty-value">Chưa có CV</p>
-            )}
-          </div>
-          <div className="summary-row">
-            <small>VỊ TRÍ</small>
-            {effectiveJob ? (
-              <div>
-                <span
-                  className="job-icon tiny-job"
-                  style={{ background: effectiveJob.accent }}
-                >
-                  {effectiveJob.title[0]}
-                </span>
-                <p>
-                  <b>{effectiveJob.title}</b>
-                  <small>
-                    {effectiveJob.company}{" "}
-                    {jobMode === "upload" ? "(Ngoài hệ thống)" : ""}
-                  </small>
-                </p>
-              </div>
-            ) : (
-              <p className="empty-value">Chưa chọn công việc</p>
-            )}
-          </div>
-          <div className="summary-note">
-            <Sparkles />
-            <p>
-              <b>AI sẽ chuẩn bị gì?</b>
-              <span>
-                Mô hình 1 sẽ đọc trực tiếp CV & Job bạn đã chọn để chọn ra câu
-                hỏi sát thực tế nhất.
-              </span>
-            </p>
-          </div>
+        <aside className="lg:col-span-4">
+          <Card className="sticky top-6 rounded-2xl border border-zinc-200 bg-white p-6">
+            <Badge variant="outline" className="mb-3">
+              <ClipboardList className="h-3.5 w-3.5 text-emerald-600" /> TÓM TẮT
+            </Badge>
+            <h3 className="m-0 text-lg font-semibold text-zinc-950">
+              Buổi phỏng vấn của bạn
+            </h3>
 
-          {sessionError && (
-            <div
-              style={{
-                color: "#ef4444",
-                fontSize: "13px",
-                margin: "8px 0",
-                background: "#fee2e2",
-                padding: "8px 12px",
-                borderRadius: "6px",
-              }}
-            >
-              {sessionError}
+            <div className="mt-5 space-y-4 divide-y divide-zinc-100">
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                  Hồ sơ (CV)
+                </div>
+                {file ? (
+                  <div className="mt-2 flex items-center gap-2.5">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
+                      <FileText className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-zinc-950">
+                        {file.name}
+                      </div>
+                      <div className="text-xs text-zinc-500">Tệp tải lên</div>
+                    </div>
+                  </div>
+                ) : selectedCvId ? (
+                  <div className="mt-2 flex items-center gap-2.5">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
+                      <FileText className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-zinc-950">
+                        {
+                          availableCvs.find((c) => c.cv_id === selectedCvId)
+                            ?.file_name
+                        }
+                      </div>
+                      <div className="text-xs text-zinc-500">
+                        CV từ hệ thống
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="m-0 mt-1.5 text-xs text-zinc-400">
+                    Chưa chọn CV
+                  </p>
+                )}
+              </div>
+
+              <div className="pt-4">
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                  Vị trí ứng tuyển
+                </div>
+                {effectiveJob ? (
+                  <div className="mt-2 flex items-center gap-2.5">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-900 text-xs font-semibold text-white">
+                      {effectiveJob.title[0]?.toUpperCase() || "J"}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-zinc-950">
+                        {effectiveJob.title}
+                      </div>
+                      <div className="truncate text-xs text-zinc-500">
+                        {effectiveJob.company}
+                        {jobMode === "upload" ? " · Ngoài hệ thống" : ""}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="m-0 mt-1.5 text-xs text-zinc-400">
+                    Chưa chọn công việc
+                  </p>
+                )}
+              </div>
+
+              <div className="pt-4">
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                  Cấu trúc phiên
+                </div>
+                <div className="mt-1.5 text-sm font-semibold text-zinc-950">
+                  {numQuestions} câu hỏi phỏng vấn thích ứng
+                </div>
+              </div>
             </div>
-          )}
 
-          <button
-            className="primary full"
-            disabled={!hasCvSelected || !effectiveJob || creatingSession}
-            onClick={handleStart}
-          >
-            {creatingSession
-              ? "AI đang đọc CV & tuyển chọn câu hỏi..."
-              : "Tiếp tục với AI "}
-            {!creatingSession && <ArrowRight />}
-          </button>
-          <p className="secure">🔒 Dữ liệu được mã hóa và bảo mật</p>
+            <div className="mt-5 flex items-start gap-2.5 rounded-xl border border-zinc-200/80 bg-zinc-50 p-3.5">
+              <SlidersHorizontal className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+              <div className="text-xs leading-relaxed text-zinc-600">
+                <b className="text-zinc-900">Hệ thống sẽ chuẩn bị gì?</b>
+                <div className="mt-0.5">
+                  Đọc trực tiếp CV và yêu cầu vị trí bạn chọn để xây dựng bộ câu
+                  hỏi phỏng vấn phù hợp.
+                </div>
+              </div>
+            </div>
+
+            {sessionError && (
+              <Alert variant="destructive" className="mt-4">
+                <AlertDescription>{sessionError}</AlertDescription>
+              </Alert>
+            )}
+
+            <Button
+              variant="brand"
+              size="lg"
+              className="mt-5 h-11 w-full"
+              disabled={!hasCvSelected || !effectiveJob || creatingSession}
+              onClick={handleStart}
+            >
+              {creatingSession
+                ? "AI đang đọc CV & tuyển chọn câu hỏi..."
+                : "Tiếp tục với AI"}
+              {!creatingSession && <ArrowRight className="h-4 w-4" />}
+            </Button>
+
+            <div className="mt-3 flex items-center justify-center gap-1.5 text-[11px] text-zinc-400">
+              <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
+              <span>Dữ liệu được mã hóa và bảo mật</span>
+            </div>
+          </Card>
         </aside>
       </div>
     </CandidateLayout>
@@ -1970,6 +1562,7 @@ export function CandidateCreateInterview() {
 
 export function CandidateResults() {
   const nav = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const session = loadInterviewSession();
   const cvAnalysis = loadCvAnalysis();
@@ -2004,7 +1597,16 @@ export function CandidateResults() {
     return true;
   });
 
-  const [currentPage, setCurrentPage] = useState(1);
+  const currentPage = Math.max(
+    1,
+    parseInt(searchParams.get("page") || "1", 10) || 1,
+  );
+  const setCurrentPage = (page: number) => {
+    const next = new URLSearchParams(searchParams);
+    if (page <= 1) next.delete("page");
+    else next.set("page", String(page));
+    setSearchParams(next, { replace: false });
+  };
   const pageSize = 5;
 
   useEffect(() => {
@@ -2038,7 +1640,7 @@ export function CandidateResults() {
   const hasRealSession =
     session && session.turns && session.turns.some((t) => t.answer);
 
-  const realScore = currentEval?.overallScore ?? (hasRealSession ? 80 : 0);
+  const realScore = currentEval?.overallScore ?? 0;
   const completedCount =
     userDbSessions.length > 0
       ? String(userDbSessions.length).padStart(2, "0")
@@ -2046,214 +1648,221 @@ export function CandidateResults() {
         ? "01"
         : "00";
   const topCompetency =
-    currentEval?.competencies?.[0]?.label?.split("&")?.[0]?.trim() ||
-    "Kiến thức chuyên môn";
-  const topScore = currentEval?.competencies?.[0]?.score || realScore || 80;
+    currentEval?.competencies?.[0]?.label?.split("&")?.[0]?.trim() || "Chưa có";
+  const topScore = currentEval?.competencies?.[0]?.score || realScore || 0;
 
-  const totalPages = Math.ceil(userDbSessions.length / pageSize) || 1;
+  const totalPages = Math.max(1, Math.ceil(userDbSessions.length / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
   const paginatedSessions = userDbSessions.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize,
+    (safePage - 1) * pageSize,
+    safePage * pageSize,
   );
 
   return (
     <CandidateLayout active="/app/results">
-      <CandidateHeader
+      <PageHeader
         title="Kết quả của tôi"
-        desc="Theo dõi sự tiến bộ qua từng phiên phỏng vấn."
+        description="Theo dõi sự tiến bộ và chi tiết đánh giá qua từng phiên phỏng vấn."
+        action={
+          <Button
+            variant="brand"
+            size="lg"
+            onClick={() => nav("/app/interviews/new")}
+          >
+            <Plus /> Phỏng vấn mới
+          </Button>
+        }
       />
-      <div className="personal-summary">
-        <div>
-          <small>ĐIỂM GẦN NHẤT</small>
-          <b style={realScore === 0 ? { color: "#dc2626" } : {}}>
-            {realScore}
-          </b>
-          <span>/100 điểm AI đánh giá</span>
-        </div>
-        <div>
-          <small>PHỎNG VẤN HOÀN THÀNH</small>
-          <b>{completedCount}</b>
-          <span>Trong 30 ngày qua</span>
-        </div>
-        <div>
-          <small>NĂNG LỰC NỔI BẬT</small>
-          <b>
-            {currentEval.overallScore > 0 ? topCompetency : "Chưa có"}
-          </b>
-          <span>
-            {currentEval.overallScore > 0 ? `${topScore}/100 điểm` : "--"}
-          </span>
+
+      <div className="space-y-5">
+        <section className="grid grid-cols-1 gap-5 sm:grid-cols-3">
+          <KpiCard
+            label="Điểm gần nhất"
+            value={realScore > 0 ? realScore : "--"}
+            badgeText="/100 điểm"
+            badgeTone={
+              realScore >= 80
+                ? "success"
+                : realScore > 0
+                  ? "neutral"
+                  : "neutral"
+            }
+            icon={Gauge}
+          />
+          <KpiCard
+            label="Phỏng vấn hoàn thành"
+            value={completedCount}
+            badgeText="Phiên thực tế"
+            badgeTone="neutral"
+            icon={CheckCircle2}
+          />
+          <KpiCard
+            label="Năng lực nổi bật"
+            value={currentEval.overallScore > 0 ? topCompetency : "Chưa có"}
+            badgeText={currentEval.overallScore > 0 ? `${topScore}/100` : "--"}
+            badgeTone={currentEval.overallScore >= 75 ? "success" : "neutral"}
+            icon={Award}
+          />
+        </section>
+
+        <div className="space-y-3">
+          {loading && userDbSessions.length === 0 ? (
+            <Card className="rounded-2xl border border-zinc-200 bg-white p-12 text-center text-sm text-zinc-500">
+              Đang tải danh sách kết quả phỏng vấn...
+            </Card>
+          ) : userDbSessions && userDbSessions.length > 0 ? (
+            paginatedSessions.map((s, idx) => {
+              const actualIndex = (currentPage - 1) * pageSize + idx;
+              const dateStr = s.created_at
+                ? new Date(s.created_at).toLocaleDateString("vi-VN")
+                : "Gần đây";
+              const evalObj = computeAiEvaluation(s);
+              const answeredTurns = s.turns
+                ? s.turns.filter((t: any) => t.answer).length
+                : 0;
+              const score = evalObj.overallScore ?? 0;
+              const jobName =
+                s.job_profile_json?.title ||
+                s.cv_profile_json?.target_role ||
+                evalObj.jobTitle ||
+                "Phiên phỏng vấn AI";
+              return (
+                <Card
+                  key={s.session_id || actualIndex}
+                  className="flex flex-col gap-4 rounded-2xl border border-zinc-200 bg-white p-5 transition-colors hover:border-zinc-300 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="flex min-w-0 items-center gap-3.5">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 text-xs font-bold text-emerald-700">
+                      {s.current_stage
+                        ? s.current_stage.slice(0, 2).toUpperCase()
+                        : "AI"}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="truncate text-[15px] font-semibold text-zinc-950">
+                        {jobName}
+                      </div>
+                      <div className="mt-0.5 text-xs text-zinc-500">
+                        {dateStr} · {answeredTurns} câu đã trả lời
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex shrink-0 items-center justify-between gap-4 sm:justify-end">
+                    <div className="text-right tabular-nums">
+                      <span
+                        className={
+                          score === 0
+                            ? "text-xl font-bold text-red-600"
+                            : "text-xl font-bold text-emerald-600"
+                        }
+                      >
+                        {score}
+                      </span>
+                      <span className="text-xs text-zinc-400">/100</span>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        nav(`/app/results/${s.session_id}`, {
+                          state: {
+                            returnTo:
+                              safePage > 1
+                                ? `/app/results?page=${safePage}`
+                                : "/app/results",
+                          },
+                        })
+                      }
+                    >
+                      Xem chi tiết <ChevronRight className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </Card>
+              );
+            })
+          ) : hasRealSession ? (
+            <Card className="flex flex-col gap-4 rounded-2xl border border-zinc-200 bg-white p-5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 items-center gap-3.5">
+                <div
+                  className={
+                    realScore === 0
+                      ? "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-red-200 bg-red-50 text-xs font-bold text-red-600"
+                      : "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 text-xs font-bold text-emerald-700"
+                  }
+                >
+                  AI
+                </div>
+                <div className="min-w-0">
+                  <div className="truncate text-[15px] font-semibold text-zinc-950">
+                    {cvAnalysis?.job_context?.title ||
+                      currentEval.jobTitle ||
+                      "Phiên phỏng vấn AI"}
+                  </div>
+                  <div className="mt-0.5 text-xs text-zinc-500">
+                    Phiên phỏng vấn gần nhất ·{" "}
+                    {new Date().toLocaleDateString("vi-VN")} ·{" "}
+                    {currentEval.answeredCount} câu hỏi
+                  </div>
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-4">
+                <div className="tabular-nums">
+                  <span
+                    className={
+                      realScore === 0
+                        ? "text-xl font-bold text-red-600"
+                        : "text-xl font-bold text-emerald-600"
+                    }
+                  >
+                    {realScore}
+                  </span>
+                  <span className="text-xs text-zinc-400">/100</span>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    nav(`/app/results/${session?.session_id || "latest"}`, {
+                      state: {
+                        returnTo:
+                          safePage > 1
+                            ? `/app/results?page=${safePage}`
+                            : "/app/results",
+                      },
+                    })
+                  }
+                >
+                  Xem chi tiết <ChevronRight className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </Card>
+          ) : (
+            <Card className="flex flex-col items-center justify-center rounded-2xl border border-zinc-200 bg-white px-6 py-14 text-center">
+              <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-600">
+                <Video className="h-5 w-5" />
+              </div>
+              <h3 className="m-0 text-base font-semibold text-zinc-950">
+                Chưa có phiên phỏng vấn nào
+              </h3>
+              <p className="m-0 mt-1.5 max-w-sm text-sm text-zinc-500">
+                Hãy bắt đầu một buổi phỏng vấn để hệ thống đánh giá năng lực và
+                lưu lại kết quả tiến bộ của bạn.
+              </p>
+              <Button
+                variant="brand"
+                className="mt-5"
+                onClick={() => nav("/app/interviews/new")}
+              >
+                <Plus /> Tạo phỏng vấn ngay
+              </Button>
+            </Card>
+          )}
         </div>
       </div>
 
-      <section className="personal-results">
-        {loading && userDbSessions.length === 0 ? (
-          <div
-            style={{
-              textAlign: "center",
-              padding: "48px",
-              color: "#64748b",
-              background: "#fff",
-              borderRadius: "12px",
-              border: "1px solid #e1e5e2",
-            }}
-          >
-            Đang tải danh sách kết quả phỏng vấn...
-          </div>
-        ) : userDbSessions && userDbSessions.length > 0 ? (
-          paginatedSessions.map((s, idx) => {
-            const actualIndex = (currentPage - 1) * pageSize + idx;
-            const dateStr = s.created_at
-              ? new Date(s.created_at).toLocaleDateString("vi-VN")
-              : "Gần đây";
-            const evalObj = computeAiEvaluation(s);
-            const answeredTurns = s.turns
-              ? s.turns.filter((t: any) => t.answer).length
-              : 0;
-            const score = evalObj.overallScore ?? 80;
-            const jobName =
-              s.job_profile_json?.title ||
-              s.cv_profile_json?.target_role ||
-              evalObj.jobTitle ||
-              "Phiên phỏng vấn AI";
-            return (
-              <div
-                className="candidate-activity"
-                key={s.session_id || actualIndex}
-                style={{
-                  borderLeft:
-                    actualIndex === 0
-                      ? score === 0
-                        ? "4px solid #ef4444"
-                        : "4px solid #10b981"
-                      : undefined,
-                }}
-              >
-                <span
-                  className="candidate-job-icon"
-                  style={
-                    score === 0
-                      ? { background: "#fef2f2", color: "#dc2626" }
-                      : { background: "#ecfdf5", color: "#059669" }
-                  }
-                >
-                  {s.current_stage
-                    ? s.current_stage.slice(0, 2).toUpperCase()
-                    : "AI"}
-                </span>
-                <p>
-                  <b>{jobName}</b>
-                  <small>
-                    Phiên #
-                    {s.session_id ? s.session_id.slice(0, 8) : actualIndex + 1}{" "}
-                    • {dateStr} • {answeredTurns} câu đã trả lời
-                  </small>
-                </p>
-                <div>
-                  <strong
-                    style={{
-                      color: score === 0 ? "#dc2626" : "#059669",
-                    }}
-                  >
-                    {score}
-                    <small>/100</small>
-                  </strong>
-                  <button
-                    className={actualIndex === 0 ? "primary" : ""}
-                    onClick={() => nav(`/app/results/${s.session_id}`)}
-                  >
-                    Xem chi tiết
-                  </button>
-                </div>
-              </div>
-            );
-          })
-        ) : hasRealSession ? (
-          <div
-            className="candidate-activity"
-            style={{
-              borderLeft:
-                realScore === 0 ? "4px solid #ef4444" : "4px solid #10b981",
-            }}
-          >
-            <span
-              className="candidate-job-icon"
-              style={
-                realScore === 0
-                  ? { background: "#fef2f2", color: "#dc2626" }
-                  : { background: "#ecfdf5", color: "#059669" }
-              }
-            >
-              AI
-            </span>
-            <p>
-              <b>
-                {cvAnalysis?.job_context?.title ||
-                  currentEval.jobTitle ||
-                  "Phiên phỏng vấn AI"}
-              </b>
-              <small>
-                Phiên phỏng vấn AI • {new Date().toLocaleDateString("vi-VN")} •{" "}
-                {currentEval.answeredCount} câu hỏi
-              </small>
-            </p>
-            <div>
-              <strong
-                style={{
-                  color: realScore === 0 ? "#dc2626" : "#059669",
-                }}
-              >
-                {realScore}
-                <small>/100</small>
-              </strong>
-              <button
-                className="primary"
-                onClick={() =>
-                  nav(`/app/results/${session?.session_id || "latest"}`)
-                }
-              >
-                Xem chi tiết
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div
-            style={{
-              textAlign: "center",
-              padding: "48px",
-              color: "#64748b",
-              background: "#fff",
-              borderRadius: "12px",
-              border: "1px solid #e1e5e2",
-            }}
-          >
-            <Sparkles
-              size={28}
-              style={{ color: "#059669", marginBottom: "12px" }}
-            />
-            <h3
-              style={{ margin: "0 0 6px", fontSize: "16px", color: "#1e293b" }}
-            >
-              Chưa có phiên phỏng vấn nào
-            </h3>
-            <p style={{ margin: 0, fontSize: "13px" }}>
-              Hãy bắt đầu một buổi phỏng vấn AI để kiểm tra và rèn luyện năng
-              lực.
-            </p>
-            <button
-              className="primary"
-              style={{ marginTop: "16px" }}
-              onClick={() => nav("/app/interviews/new")}
-            >
-              Tạo phỏng vấn ngay
-            </button>
-          </div>
-        )}
-      </section>
-
-      {!loading && userDbSessions.length > pageSize && (
-        <CandidatePagination
-          currentPage={currentPage}
+      {!loading && userDbSessions.length > 0 && (
+        <Pagination
+          currentPage={safePage}
           totalPages={totalPages}
           totalItems={userDbSessions.length}
           pageSize={pageSize}
@@ -2270,187 +1879,36 @@ export function CandidateResults() {
 
 export function CandidateResultDetail() {
   const nav = useNavigate();
+  const location = useLocation();
   const { id } = useParams<{ id: string }>();
+  const returnTo =
+    (location.state as { returnTo?: string } | null)?.returnTo ||
+    "/app/results";
   return (
     <CandidateLayout active="/app/results">
       <div className="candidate-shared-report">
         <ReportContent
           sessionId={id}
           candidateView
-          onBack={() => nav("/app/results")}
+          onBack={() => nav(returnTo)}
         />
       </div>
     </CandidateLayout>
   );
 }
 
-export function CandidateProfile() {
-  const { user, updateProfile } = useAuth();
-
-  const [name, setName] = useState(user?.name || "");
-  const [phone, setPhone] = useState(user?.phone || "");
-  const [email, setEmail] = useState(user?.email || "");
-  const [currentRole, setCurrentRole] = useState(
-    user?.current_role || "Senior Frontend Developer",
-  );
-  const [location, setLocation] = useState(user?.location || "Đà Nẵng");
-
-  const [saving, setSaving] = useState(false);
-  const [successMsg, setSuccessMsg] = useState("");
-  const [errorMsg, setErrorMsg] = useState("");
-
-  // Sync state if user changes or on first mount
-  useEffect(() => {
-    if (user) {
-      if (user.name) setName(user.name);
-      if (user.phone) setPhone(user.phone);
-      if (user.email) setEmail(user.email);
-      if (user.current_role) setCurrentRole(user.current_role);
-      if (user.location) setLocation(user.location);
-    }
-  }, [user]);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    setSuccessMsg("");
-    setErrorMsg("");
-
-    try {
-      await updateProfile({
-        name: name.trim(),
-        phone: phone.trim(),
-        email: email.trim(),
-        current_role: currentRole.trim(),
-        location: location.trim(),
-      });
-      setSuccessMsg("Cập nhật hồ sơ thành công!");
-      setTimeout(() => setSuccessMsg(""), 4000);
-    } catch (err: any) {
-      setErrorMsg(err?.message || "Cập nhật hồ sơ thất bại. Vui lòng thử lại.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const initials = name
-    ? name
-        .split(" ")
-        .map((w: string) => w[0])
-        .filter(Boolean)
-        .slice(-2)
-        .join("")
-        .toUpperCase()
-    : user?.username
-      ? user.username.slice(0, 2).toUpperCase()
-      : "UV";
-
+export function CandidateSettings() {
   return (
-    <CandidateLayout active="/app/profile">
-      <CandidateHeader
-        title="Hồ sơ cá nhân"
-        desc="Quản lý thông tin và CV mặc định của bạn."
-      />
-      <section className="candidate-profile-page">
-        <div className="candidate-profile-head">
-          <span>{initials}</span>
-          <div>
-            <h2>{name || user?.name || "Ứng viên"}</h2>
-            <p>{email || user?.email || "user@prephire.vn"}</p>
-            <small style={{ color: "#6b7280" }}>
-              Tài khoản: <b>{user?.username || "user"}</b>
-            </small>
-          </div>
-        </div>
+    <CandidateLayout active="/app/settings">
+      <SettingsFormContent roleLabel="Ứng viên" />
+    </CandidateLayout>
+  );
+}
 
-        {successMsg && (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              marginTop: "16px",
-              background: "#dcfce7",
-              border: "1px solid #bbf7d0",
-              color: "#15803d",
-              padding: "10px 14px",
-              borderRadius: "8px",
-              fontSize: "13px",
-              fontWeight: 600,
-            }}
-          >
-            <Check size={16} />
-            <span>{successMsg}</span>
-          </div>
-        )}
-
-        {errorMsg && (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              marginTop: "16px",
-              background: "#fee2e2",
-              border: "1px solid #fecaca",
-              color: "#b91c1c",
-              padding: "10px 14px",
-              borderRadius: "8px",
-              fontSize: "13px",
-              fontWeight: 600,
-            }}
-          >
-            <X size={16} />
-            <span>{errorMsg}</span>
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit}>
-          <div className="candidate-profile-form">
-            <label>
-              Họ và tên
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Nhập họ và tên"
-                required
-              />
-            </label>
-            <label>
-              Số điện thoại
-              <input
-                type="text"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="+84 912 345 678"
-              />
-            </label>
-            <label>
-              Email
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="example@gmail.com"
-                required
-              />
-            </label>
-            <label>
-              Vị trí mong muốn
-              <input
-                type="text"
-                value={currentRole}
-                onChange={(e) => setCurrentRole(e.target.value)}
-                placeholder="Ví dụ: Senior Frontend Developer"
-              />
-            </label>
-          </div>
-          <button className="primary" type="submit" disabled={saving}>
-            {saving ? "Đang lưu…" : "Lưu thay đổi"}
-          </button>
-        </form>
-      </section>
+export function CandidateHelp() {
+  return (
+    <CandidateLayout active="/app/help">
+      <HelpCenterContent />
     </CandidateLayout>
   );
 }

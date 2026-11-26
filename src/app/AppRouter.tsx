@@ -12,12 +12,12 @@ import { Login, type Page } from "../App";
 import {
   CandidatesPage,
   Dashboard,
+  HelpCenterPage,
   InterviewsPage,
   JobsPage,
   ReportPage,
   ReportsPage,
   SettingsPage,
-  StartInterview,
 } from "../admin/pages";
 import {
   AnalysisPage,
@@ -27,28 +27,30 @@ import {
 } from "../interview/pages";
 import {
   CandidateCreateInterview,
+  CandidateHelp,
   CandidateHome,
   CandidateJobs,
-  CandidateProfile,
   CandidateResultDetail,
   CandidateResults,
+  CandidateSettings,
 } from "../candidate/CandidatePages";
 import { loadInterviewSession } from "../services/interviewApi";
 
 const adminPath: Record<Page, string> = {
   login: "/login",
   dashboard: "/admin/dashboard",
-  start: "/admin/interviews/new",
+  start: "/admin/interviews",
   interviews: "/admin/interviews",
   candidates: "/admin/candidates",
   jobs: "/admin/jobs",
   reports: "/admin/reports",
   settings: "/admin/settings",
+  help: "/admin/help",
   analysis: "/admin/interviews/demo/analysis",
   device: "/admin/interviews/demo/device-check",
   room: "/admin/interviews/demo/room",
   processing: "/admin/interviews/demo/processing",
-  report: "/admin/reports/1042",
+  report: "/admin/reports/latest",
 };
 
 function AdminScreen({
@@ -124,7 +126,7 @@ function AppRoutes() {
       />
       <Route
         path="/admin/interviews/new"
-        element={admin(<AdminScreen component={StartInterview} />)}
+        element={<Navigate to="/admin/interviews" replace />}
       />
       <Route
         path="/admin/interviews/:id/analysis"
@@ -161,6 +163,10 @@ function AppRoutes() {
       <Route
         path="/admin/settings"
         element={adminOnly(<AdminScreen component={SettingsPage} />)}
+      />
+      <Route
+        path="/admin/help"
+        element={admin(<AdminScreen component={HelpCenterPage} />)}
       />
 
       <Route path="/app" element={candidate(<CandidateHome />)} />
@@ -210,7 +216,12 @@ function AppRoutes() {
         path="/app/results/:id"
         element={candidate(<CandidateResultDetail />)}
       />
-      <Route path="/app/profile" element={candidate(<CandidateProfile />)} />
+      <Route
+        path="/app/profile"
+        element={<Navigate to="/app/settings" replace />}
+      />
+      <Route path="/app/settings" element={candidate(<CandidateSettings />)} />
+      <Route path="/app/help" element={candidate(<CandidateHelp />)} />
       <Route path="*" element={<RootRedirect />} />
     </Routes>
   );

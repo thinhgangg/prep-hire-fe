@@ -1,8 +1,7 @@
-@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap");
 :root {
-  font-family: "DM Sans", system-ui, sans-serif;
-  color: #17201c;
-  background: #f6f7f5;
+  font-family: "Be Vietnam Pro", system-ui, -apple-system, sans-serif;
+  color: #09090b;
+  background: #fafafa;
   font-synthesis: none;
 }
 * {
@@ -22,7 +21,7 @@ button {
   display: flex;
   align-items: center;
   gap: 10px;
-  font: 800 20px Manrope;
+  font: 800 20px "Be Vietnam Pro";
   color: #17201c;
 }
 .logo-mark {
@@ -59,7 +58,7 @@ button {
   margin-bottom: 18px;
 }
 .login-box h1 {
-  font: 700 42px/1.15 Manrope;
+  font: 700 42px/1.15 "Be Vietnam Pro";
   margin: 0 0 16px;
   letter-spacing: -1.6px;
 }
@@ -220,7 +219,7 @@ button {
   background: #89a293;
 }
 .login-aside blockquote {
-  font: 600 44px/1.23 Manrope;
+  font: 600 44px/1.23 "Be Vietnam Pro";
   letter-spacing: -1.5px;
   margin: 25px 0 20px;
   max-width: 570px;
@@ -288,7 +287,7 @@ button {
   margin-top: 3px;
 }
 .score {
-  font: 700 24px Manrope;
+  font: 700 24px "Be Vietnam Pro";
   color: #97d6ac;
 }
 .bars {
@@ -481,7 +480,7 @@ button {
 }
 .topbar h1,
 .simple-header h1 {
-  font: 700 27px Manrope;
+  font: 700 27px "Be Vietnam Pro";
   margin: 0;
   letter-spacing: -0.7px;
 }
@@ -516,7 +515,7 @@ button {
   position: relative;
 }
 .hero-card h2 {
-  font: 700 38px/1.15 Manrope;
+  font: 700 38px/1.15 "Be Vietnam Pro";
   letter-spacing: -1.4px;
   margin: 15px 0;
 }
@@ -641,7 +640,7 @@ button {
   margin: 30px 0 16px;
 }
 .section-title h3 {
-  font: 700 17px Manrope;
+  font: 700 17px "Be Vietnam Pro";
   margin: 0;
 }
 .section-title p {
@@ -679,7 +678,7 @@ button {
   font-weight: 800;
 }
 .stats h3 {
-  font: 700 27px Manrope;
+  font: 700 27px "Be Vietnam Pro";
   margin: 12px 0 3px;
 }
 .stats small {
@@ -890,14 +889,14 @@ td:first-child {
   margin-bottom: 20px;
 }
 .number {
-  font: 700 10px Manrope;
+  font: 700 10px "Be Vietnam Pro";
   color: #557060;
   background: #edf2ef;
   padding: 7px;
   border-radius: 6px;
 }
 .card-heading h2 {
-  font: 700 17px Manrope;
+  font: 700 17px "Be Vietnam Pro";
   margin: 1px 0 4px;
 }
 .card-heading p {
@@ -1113,7 +1112,7 @@ td:first-child {
   top: 30px;
 }
 .summary-card h3 {
-  font: 700 18px Manrope;
+  font: 700 18px "Be Vietnam Pro";
   margin: 13px 0 26px;
 }
 .summary-row {
@@ -1216,7 +1215,7 @@ td:first-child {
   margin: 0 auto 20px;
 }
 .success-page h1 {
-  font: 700 29px Manrope;
+  font: 700 29px "Be Vietnam Pro";
 }
 .success-page > p {
   color: #748078;
@@ -1408,7 +1407,7 @@ td:first-child {
 .sub-logo {
   border: 0;
   background: none;
-  font: 800 19px Manrope;
+  font: 800 19px "Be Vietnam Pro";
   display: flex;
   align-items: center;
   gap: 9px;
@@ -1516,7 +1515,7 @@ td:first-child {
   font-weight: 800;
 }
 .page-header h1 {
-  font: 700 29px Manrope;
+  font: 700 29px "Be Vietnam Pro";
   letter-spacing: -0.8px;
   margin: 0 0 5px;
 }
@@ -1592,7 +1591,7 @@ td:first-child {
   color: #929a95;
 }
 .metric-strip b {
-  font: 700 21px Manrope;
+  font: 700 21px "Be Vietnam Pro";
   margin-top: 2px;
 }
 .metric-strip em {
@@ -1763,7 +1762,7 @@ td:first-child {
 }
 .record strong,
 .report-row > strong {
-  font: 700 16px Manrope;
+  font: 700 16px "Be Vietnam Pro";
 }
 .record strong small,
 .report-row > strong small {
@@ -1843,7 +1842,7 @@ td:first-child {
   font-weight: 800;
 }
 .candidate-profile h3 {
-  font: 700 15px Manrope;
+  font: 700 15px "Be Vietnam Pro";
   margin: 12px 0 3px;
 }
 .candidate-profile > p {
@@ -1919,7 +1918,7 @@ td:first-child {
   margin-right: 28px;
 }
 .jobs-summary b {
-  font: 700 24px Manrope;
+  font: 700 24px "Be Vietnam Pro";
 }
 .jobs-summary small {
   color: #a7b5ac;
@@ -1933,7 +1932,7 @@ td:first-child {
   margin: 0 0 14px;
 }
 .panel-title h2 {
-  font: 700 17px Manrope;
+  font: 700 17px "Be Vietnam Pro";
   margin: 0;
 }
 .panel-title p {
@@ -1972,7 +1971,7 @@ td:first-child {
   margin-left: 6px;
 }
 .job-card-large h3 {
-  font: 700 15px Manrope;
+  font: 700 15px "Be Vietnam Pro";
   margin: 17px 0 4px;
 }
 .job-card-large > p {
@@ -2026,7 +2025,7 @@ td:first-child {
   padding: 24px;
 }
 .report-overview h2 {
-  font: 700 27px/1.25 Manrope;
+  font: 700 27px/1.25 "Be Vietnam Pro";
   margin: 14px 0 8px;
 }
 .report-overview h2 em {
@@ -2052,7 +2051,7 @@ td:first-child {
   color: #a0a7a2;
 }
 .report-overview aside h3 {
-  font: 700 14px Manrope;
+  font: 700 14px "Be Vietnam Pro";
   margin: 0;
 }
 .donut {
@@ -2079,7 +2078,7 @@ td:first-child {
   text-align: center;
 }
 .donut b {
-  font: 700 22px Manrope;
+  font: 700 22px "Be Vietnam Pro";
 }
 .donut small {
   font-size: 7px;
@@ -2137,7 +2136,7 @@ td:first-child {
   color: #969d98;
 }
 .mini-scores b {
-  font: 700 14px Manrope;
+  font: 700 14px "Be Vietnam Pro";
   margin-top: 3px;
 }
 .settings-layout {
@@ -2175,7 +2174,7 @@ td:first-child {
   padding-bottom: 16px;
 }
 .settings-card h2 {
-  font: 700 18px Manrope;
+  font: 700 18px "Be Vietnam Pro";
   margin: 0;
 }
 .settings-card p {
@@ -2307,7 +2306,7 @@ td:first-child {
   font-weight: 800;
 }
 .flow-header h1 {
-  font: 700 22px Manrope;
+  font: 700 22px "Be Vietnam Pro";
   margin: 3px 0;
 }
 .private {
@@ -2356,7 +2355,7 @@ td:first-child {
   width: 28px;
 }
 .analysis-main h2 {
-  font: 700 23px Manrope;
+  font: 700 23px "Be Vietnam Pro";
   margin: 0 0 9px;
 }
 .analysis-main > p {
@@ -2440,7 +2439,7 @@ td:first-child {
   margin: 20px auto 0;
 }
 .analysis-side h3 {
-  font: 700 14px Manrope;
+  font: 700 14px "Be Vietnam Pro";
   margin: 0 0 17px;
 }
 .candidate-summary {
@@ -2558,7 +2557,7 @@ td:first-child {
   margin-bottom: 27px;
 }
 .device-intro h1 {
-  font: 700 29px Manrope;
+  font: 700 29px "Be Vietnam Pro";
   margin: 12px 0 6px;
 }
 .device-intro p {
@@ -2675,7 +2674,7 @@ td:first-child {
   padding: 24px;
 }
 .checks-card h2 {
-  font: 700 17px Manrope;
+  font: 700 17px "Be Vietnam Pro";
   margin: 0 0 4px;
 }
 .checks-card > p {
@@ -2799,9 +2798,7 @@ td:first-child {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  font-family:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
-    Arial, sans-serif;
+  font-family: "Be Vietnam Pro", system-ui, -apple-system, sans-serif;
 }
 
 /* Header */
@@ -3617,7 +3614,7 @@ td:first-child {
   animation-duration: 2s;
 }
 .processing-page h1 {
-  font: 700 29px Manrope;
+  font: 700 29px "Be Vietnam Pro";
   margin: 13px 0 7px;
 }
 .processing-page main > p {
@@ -3734,7 +3731,7 @@ td:first-child {
   font-weight: 800;
 }
 .report-header h1 {
-  font: 700 23px Manrope;
+  font: 700 23px "Be Vietnam Pro";
   margin: 3px 0;
 }
 .report-header p {
@@ -3793,7 +3790,7 @@ td:first-child {
   text-align: center;
 }
 .overall-ring b {
-  font: 700 38px Manrope;
+  font: 700 38px "Be Vietnam Pro";
 }
 .overall-ring small {
   font-size: 9px;
@@ -3804,7 +3801,7 @@ td:first-child {
   color: #a4c6af;
 }
 .score-hero h2 {
-  font: 700 23px Manrope;
+  font: 700 23px "Be Vietnam Pro";
   margin: 12px 0 6px;
 }
 .score-hero > div:nth-child(2) > p {
@@ -3852,7 +3849,7 @@ td:first-child {
   color: #8fa097;
 }
 .score-hero aside b {
-  font: 600 13px Manrope;
+  font: 600 13px "Be Vietnam Pro";
 }
 .report-columns,
 .insight-grid {
@@ -3874,7 +3871,7 @@ td:first-child {
   margin-bottom: 18px;
 }
 .card-title h3 {
-  font: 700 14px Manrope;
+  font: 700 14px "Be Vietnam Pro";
   margin: 0;
 }
 .card-title > span {
@@ -3892,7 +3889,7 @@ td:first-child {
   font-size: 9px;
 }
 .score-bar strong {
-  font: 700 11px Manrope;
+  font: 700 11px "Be Vietnam Pro";
 }
 .score-bar strong small {
   font-size: 7px;
@@ -3969,7 +3966,7 @@ td:first-child {
   padding: 14px;
 }
 .question-nav h3 {
-  font: 700 13px Manrope;
+  font: 700 13px "Be Vietnam Pro";
   padding: 0 7px;
 }
 .question-nav button {
@@ -4009,7 +4006,7 @@ td:first-child {
   margin-top: 2px;
 }
 .answer-detail > h2 {
-  font: 600 22px/1.4 Manrope;
+  font: 600 22px/1.4 "Be Vietnam Pro";
   max-width: 750px;
 }
 .answer-score {
@@ -4026,7 +4023,7 @@ td:first-child {
   color: #3f7c56;
 }
 .answer-score > span b {
-  font: 700 25px Manrope;
+  font: 700 25px "Be Vietnam Pro";
 }
 .answer-score > span small {
   font-size: 9px;
@@ -4123,7 +4120,7 @@ td:first-child {
   margin-bottom: 7px;
 }
 .analysis-metrics b {
-  font: 700 22px Manrope;
+  font: 700 22px "Be Vietnam Pro";
 }
 .analysis-metrics em {
   font-size: 8px;
@@ -4545,7 +4542,7 @@ td:first-child {
   display: flex;
   align-items: center;
   gap: 10px;
-  font: 800 20px Manrope;
+  font: 800 20px "Be Vietnam Pro";
   color: #17201c;
 }
 .unified-logo i {
@@ -4667,7 +4664,7 @@ td:first-child {
   width: 25px;
 }
 .jobs-empty h2 {
-  font: 700 20px Manrope;
+  font: 700 20px "Be Vietnam Pro";
   margin: 0 0 8px;
 }
 .jobs-empty p {
@@ -4987,7 +4984,7 @@ td:first-child {
   display: flex;
   align-items: center;
   gap: 10px;
-  font: 800 20px Manrope;
+  font: 800 20px "Be Vietnam Pro";
   color: #17201c;
 }
 .candidate-logo i {
@@ -5124,7 +5121,7 @@ td:first-child {
   margin-bottom: 29px;
 }
 .candidate-header h1 {
-  font: 700 28px Manrope;
+  font: 700 28px "Be Vietnam Pro";
   letter-spacing: -0.7px;
   margin: 0 0 5px;
 }
@@ -5158,7 +5155,7 @@ td:first-child {
   font-weight: 800;
 }
 .candidate-hero h2 {
-  font: 700 36px/1.18 Manrope;
+  font: 700 36px/1.18 "Be Vietnam Pro";
   letter-spacing: -1.3px;
   margin: 14px 0;
 }
@@ -5206,7 +5203,7 @@ td:first-child {
   text-align: center;
 }
 .candidate-score b {
-  font: 700 50px Manrope;
+  font: 700 50px "Be Vietnam Pro";
 }
 .candidate-score small {
   font-size: 8px;
@@ -5261,7 +5258,7 @@ td:first-child {
   color: #8b958e;
 }
 .candidate-quick article b {
-  font: 700 23px Manrope;
+  font: 700 23px "Be Vietnam Pro";
   margin-top: 4px;
 }
 .candidate-quick article button {
@@ -5285,7 +5282,7 @@ td:first-child {
   margin-top: 27px;
 }
 .candidate-section > div:first-child h2 {
-  font: 700 18px Manrope;
+  font: 700 18px "Be Vietnam Pro";
   margin: 0;
 }
 .candidate-section > div:first-child p {
@@ -5337,7 +5334,7 @@ td:first-child {
   gap: 18px;
 }
 .candidate-activity strong {
-  font: 700 19px Manrope;
+  font: 700 19px "Be Vietnam Pro";
   color: #397b55;
 }
 .candidate-activity strong small {
@@ -5409,7 +5406,7 @@ td:first-child {
   flex-direction: column;
 }
 .candidate-job-info b {
-  font: 700 15px Manrope;
+  font: 700 15px "Be Vietnam Pro";
 }
 .candidate-job-info small {
   font-size: 11px;
@@ -5455,7 +5452,7 @@ td:first-child {
   text-align: center;
 }
 .candidate-match b {
-  font: 700 18px Manrope;
+  font: 700 18px "Be Vietnam Pro";
   color: #3f7955;
 }
 .candidate-match small {
@@ -5505,7 +5502,7 @@ td:first-child {
   font-weight: 800;
 }
 .candidate-form-block h2 {
-  font: 700 17px Manrope;
+  font: 700 17px "Be Vietnam Pro";
   margin: 0 0 4px;
 }
 .candidate-form-block p {
@@ -5556,7 +5553,7 @@ td:first-child {
   margin-top: 5px;
 }
 .candidate-create > aside h3 {
-  font: 700 18px Manrope;
+  font: 700 18px "Be Vietnam Pro";
   margin: 14px 0;
 }
 .candidate-create dl > div {
@@ -5620,7 +5617,7 @@ td:first-child {
   color: #88938c;
 }
 .personal-summary b {
-  font: 700 25px Manrope;
+  font: 700 25px "Be Vietnam Pro";
   margin: 8px 0 4px;
 }
 .personal-summary span {
@@ -5663,7 +5660,7 @@ td:first-child {
   justify-content: center;
 }
 .personal-score > span b {
-  font: 700 38px Manrope;
+  font: 700 38px "Be Vietnam Pro";
 }
 .personal-score > span small {
   font-size: 10px;
@@ -5679,7 +5676,7 @@ td:first-child {
   font-style: normal;
 }
 .personal-score h1 {
-  font: 700 25px Manrope;
+  font: 700 25px "Be Vietnam Pro";
   margin: 8px 0;
 }
 .personal-score p {
@@ -5734,7 +5731,7 @@ td:first-child {
   padding: 20px;
 }
 .personal-insights h2 {
-  font: 700 16px Manrope;
+  font: 700 16px "Be Vietnam Pro";
   margin: 0;
 }
 .personal-insights li {
@@ -5771,7 +5768,7 @@ td:first-child {
   flex: 1;
 }
 .candidate-profile-head h2 {
-  font: 700 17px Manrope;
+  font: 700 17px "Be Vietnam Pro";
   margin: 0;
 }
 .candidate-profile-head p {
@@ -5935,7 +5932,7 @@ td:first-child {
   padding-bottom: 20px;
 }
 .cv-result-heading h2 {
-  font: 700 22px Manrope;
+  font: 700 22px "Be Vietnam Pro";
   margin: 12px 0 7px;
 }
 .cv-result-heading p {
@@ -5959,7 +5956,7 @@ td:first-child {
   color: #315d44;
 }
 .cv-match-score b {
-  font: 800 33px Manrope;
+  font: 800 33px "Be Vietnam Pro";
 }
 .cv-match-score small {
   font-size: 11px;
@@ -5984,7 +5981,7 @@ td:first-child {
 }
 .cv-result-grid h3,
 .cv-roadmap h3 {
-  font: 700 15px Manrope;
+  font: 700 15px "Be Vietnam Pro";
   margin: 0 0 14px;
 }
 .cv-result-grid h4 {
@@ -6110,7 +6107,7 @@ td:first-child {
   color: #538066;
 }
 .cv-roadmap article h4 {
-  font: 700 12px Manrope;
+  font: 700 12px "Be Vietnam Pro";
   margin: 7px 0 4px;
 }
 .cv-roadmap article small {
@@ -6345,7 +6342,7 @@ td:first-child {
   color: #e2e8f0;
   display: grid;
   place-items: center;
-  font: 700 28px Manrope;
+  font: 700 28px "Be Vietnam Pro";
   border: 2px solid #334155;
 }
 .meet-overlay-bottom {
@@ -6456,7 +6453,7 @@ td:first-child {
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.03);
 }
 .meet-card h1 {
-  font: 700 24px Manrope;
+  font: 700 24px "Be Vietnam Pro";
   color: #0f172a;
   margin: 0 0 6px;
 }
@@ -6654,7 +6651,7 @@ td:first-child {
   margin-bottom: 12px;
 }
 .candidate-section-header h2 {
-  font: 700 18px Manrope;
+  font: 700 18px "Be Vietnam Pro";
   margin: 0;
   color: #17201c;
 }

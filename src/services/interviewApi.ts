@@ -42,6 +42,7 @@ export type InterviewTurn = InterviewQuestion & {
 
 export type InterviewSession = {
   session_id: string;
+  user_id?: number | null;
   status: string;
   language: string;
   max_questions: number;
@@ -49,7 +50,43 @@ export type InterviewSession = {
   current_stage: string;
   current_question: InterviewQuestion | null;
   turns: InterviewTurn[];
+  created_at?: string;
+  updated_at?: string;
+  completed_at?: string | null;
+  cv_profile_json?: any;
+  job_profile_json?: any;
 };
+
+export function getSessionCandidateName(
+  session?: InterviewSession | null,
+): string {
+  if (!session) return "Ứng viên";
+  const cv = session.cv_profile_json || {};
+  if (cv.name && typeof cv.name === "string" && cv.name.trim()) {
+    return cv.name.trim();
+  }
+  if (
+    cv.candidate_name &&
+    typeof cv.candidate_name === "string" &&
+    cv.candidate_name.trim()
+  ) {
+    return cv.candidate_name.trim();
+  }
+  if (typeof session.user_id === "number" && session.user_id > 0) {
+    return `Ứng viên ${session.user_id}`;
+  }
+  return "Ứng viên";
+}
+
+export function getSessionJobTitle(session?: InterviewSession | null): string {
+  if (!session) return "Vị trí phỏng vấn";
+  const jp = session.job_profile_json || {};
+  const cv = session.cv_profile_json || {};
+  if (jp.title && jp.title !== "Uploaded JD") return jp.title;
+  if (cv.target_role) return cv.target_role;
+  if (jp.title) return jp.title;
+  return "Vị trí phỏng vấn";
+}
 
 export type CvAnalysis = {
   analysis_result_id?: number | null;
@@ -149,6 +186,8 @@ export async function createSessionWithUpload(params: {
   jobId?: number | null;
   jdFile?: File | null;
   jdText?: string | null;
+  jobTitle?: string | null;
+  jobCompany?: string | null;
   language?: string;
   maxQuestions?: number;
   userId?: number | string | null;
@@ -160,6 +199,8 @@ export async function createSessionWithUpload(params: {
     form.append("job_id", String(params.jobId));
   if (params.jdFile) form.append("jd_file", params.jdFile);
   if (params.jdText) form.append("jd_text", params.jdText);
+  if (params.jobTitle) form.append("job_title", params.jobTitle);
+  if (params.jobCompany) form.append("job_company", params.jobCompany);
   form.append("language", params.language || "vi");
   form.append("max_questions", String(params.maxQuestions || 5));
   form.append("allow_external_ai", "true");
@@ -174,7 +215,9 @@ export async function createSessionWithUpload(params: {
     method: "POST",
     body: form,
   });
-  return parseResponse<InterviewSession>(res);
+  const session = await parseResponse<InterviewSession>(res);
+  invalidateSessionsCache();
+  return session;
 }
 
 export async function createStoredSession(
@@ -193,7 +236,9 @@ export async function createStoredSession(
       allow_external_ai: true,
     }),
   });
-  return parseResponse<InterviewSession>(res);
+  const session = await parseResponse<InterviewSession>(res);
+  invalidateSessionsCache();
+  return session;
 }
 
 export async function createCustomSession(
@@ -212,7 +257,9 @@ export async function createCustomSession(
       allow_external_ai: true,
     }),
   });
-  return parseResponse<InterviewSession>(res);
+  const session = await parseResponse<InterviewSession>(res);
+  invalidateSessionsCache();
+  return session;
 }
 
 export async function getEvidenceSummary(sessionId: string): Promise<any> {
@@ -303,7 +350,9 @@ export async function submitInterviewAnswer(
       }),
     },
   );
-  return parseResponse<InterviewSession>(response);
+  const session = await parseResponse<InterviewSession>(response);
+  invalidateSessionsCache();
+  return session;
 }
 
 // -------------------------------------------------------------
@@ -335,7 +384,7 @@ export function loadInterviewSession(
   sessionId?: string,
 ): InterviewSession | null {
   try {
-    if (sessionId && sessionId !== "1042" && sessionId !== "latest") {
+    if (sessionId && sessionId !== "latest") {
       const byId = localStorage.getItem(`interview_session_${sessionId}`);
       if (byId) return JSON.parse(byId) as InterviewSession;
     }
@@ -373,10 +422,38 @@ export function loadCvAnalysis(): CvAnalysis | null {
   }
 }
 
+const SESSIONS_CACHE_TTL_MS = 20_000;
+let cachedAllSessions: InterviewSession[] | null = null;
+let cachedAllSessionsAt = 0;
+let inFlightAllSessions: Promise<InterviewSession[]> | null = null;
+
+const userSessionsCache = new Map<
+  string,
+  { data: InterviewSession[]; at: number }
+>();
+const inFlightUserSessions = new Map<string, Promise<InterviewSession[]>>();
+
+export function invalidateSessionsCache(): void {
+  cachedAllSessions = null;
+  cachedAllSessionsAt = 0;
+  userSessionsCache.clear();
+}
+
+export function getCachedAllSessions(): InterviewSession[] {
+  return cachedAllSessions || [];
+}
+
+export function getCachedUserSessions(
+  userId: number | string,
+): InterviewSession[] {
+  const cleanId = String(userId).replace(/\D/g, "") || String(userId);
+  return userSessionsCache.get(cleanId)?.data || [];
+}
+
 export async function getInterviewSessionById(
   sessionId: string,
 ): Promise<InterviewSession | null> {
-  if (!sessionId || sessionId === "1042" || sessionId === "latest") return null;
+  if (!sessionId || sessionId === "latest") return null;
   try {
     const res = await fetch(
       `${AI_API_BASE}/api/v1/interview/sessions/${sessionId}`,
@@ -394,15 +471,73 @@ export async function getInterviewSessionById(
 
 export async function getUserSessions(
   userId: number | string,
+  forceRefresh = false,
 ): Promise<InterviewSession[]> {
   const cleanId = String(userId).replace(/\D/g, "") || String(userId);
-  try {
-    const res = await fetch(
-      `${AI_API_BASE}/api/v1/interview/users/${cleanId}/sessions`,
-    );
-    if (!res.ok) return [];
-    return await res.json();
-  } catch {
-    return [];
+  const now = Date.now();
+  const cached = userSessionsCache.get(cleanId);
+  if (!forceRefresh && cached && now - cached.at < SESSIONS_CACHE_TTL_MS) {
+    return cached.data;
   }
+
+  const existing = inFlightUserSessions.get(cleanId);
+  if (existing) return existing;
+
+  const promise = (async () => {
+    try {
+      const res = await fetch(
+        `${AI_API_BASE}/api/v1/interview/users/${cleanId}/sessions`,
+      );
+      if (!res.ok) return cached?.data || [];
+      const data = await res.json();
+      const list = Array.isArray(data) ? data : [];
+      userSessionsCache.set(cleanId, { data: list, at: Date.now() });
+      return list;
+    } catch {
+      return cached?.data || [];
+    } finally {
+      inFlightUserSessions.delete(cleanId);
+    }
+  })();
+
+  inFlightUserSessions.set(cleanId, promise);
+  return promise;
+}
+
+export async function getAllSessions(
+  limit = 100,
+  forceRefresh = false,
+): Promise<InterviewSession[]> {
+  const now = Date.now();
+  if (
+    !forceRefresh &&
+    cachedAllSessions &&
+    now - cachedAllSessionsAt < SESSIONS_CACHE_TTL_MS
+  ) {
+    return cachedAllSessions;
+  }
+
+  if (inFlightAllSessions) {
+    return inFlightAllSessions;
+  }
+
+  inFlightAllSessions = (async () => {
+    try {
+      const res = await fetch(
+        `${AI_API_BASE}/api/v1/interview/sessions?limit=${limit}`,
+      );
+      if (!res.ok) return cachedAllSessions || [];
+      const data = await res.json();
+      const list = Array.isArray(data) ? data : [];
+      cachedAllSessions = list;
+      cachedAllSessionsAt = Date.now();
+      return list;
+    } catch {
+      return cachedAllSessions || [];
+    } finally {
+      inFlightAllSessions = null;
+    }
+  })();
+
+  return inFlightAllSessions;
 }

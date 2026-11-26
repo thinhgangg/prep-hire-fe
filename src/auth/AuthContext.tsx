@@ -70,8 +70,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         sessionStorage.getItem("prephire-user") ||
         localStorage.getItem("prephire-user");
       if (stored) return JSON.parse(stored);
-      const role = (sessionStorage.getItem("interviewly-role") ||
-        localStorage.getItem("interviewly-role")) as UserRole | null;
+      const role = (sessionStorage.getItem("prephire-role") ||
+        localStorage.getItem("prephire-role")) as UserRole | null;
       if (role === "ADMIN") return fallbackMockUser("admin");
       if (role === "CANDIDATE") return fallbackMockUser("user1");
     } catch {}
@@ -83,8 +83,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (u) {
       sessionStorage.setItem("prephire-user", JSON.stringify(u));
       localStorage.setItem("prephire-user", JSON.stringify(u));
-      sessionStorage.setItem("interviewly-role", u.role);
-      localStorage.setItem("interviewly-role", u.role);
+      sessionStorage.setItem("prephire-role", u.role);
+      localStorage.setItem("prephire-role", u.role);
       if (u.user_id_num !== undefined) {
         sessionStorage.setItem("current_user_id", String(u.user_id_num));
         localStorage.setItem("current_user_id", String(u.user_id_num));
@@ -101,8 +101,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } else {
       sessionStorage.removeItem("prephire-user");
       localStorage.removeItem("prephire-user");
-      sessionStorage.removeItem("interviewly-role");
-      localStorage.removeItem("interviewly-role");
+      sessionStorage.removeItem("prephire-role");
+      localStorage.removeItem("prephire-role");
       sessionStorage.removeItem("current_user_id");
       localStorage.removeItem("current_user_id");
       sessionStorage.removeItem("current_user_name");
@@ -307,7 +307,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error(errDetail);
       }
     } catch (err: any) {
-      if (user) {
+      // Chỉ fallback cục bộ nếu mất kết nối mạng, lỗi nghiệp vụ từ BE phải hiển thị rõ
+      const isNetworkError =
+        err instanceof TypeError ||
+        /fetch|network/i.test(String(err?.message || ""));
+      if (isNetworkError && user) {
         const authUser: AuthUser = {
           ...user,
           ...data,
@@ -315,6 +319,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           email: data.email ?? user.email,
           phone: data.phone ?? user.phone,
           current_role: data.current_role ?? user.current_role,
+          location: data.location ?? user.location,
         };
         saveUser(authUser);
         return authUser;
