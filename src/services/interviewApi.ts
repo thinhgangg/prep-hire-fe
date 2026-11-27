@@ -27,7 +27,12 @@ export type InterviewQuestion = {
 };
 
 export type InterviewTurn = InterviewQuestion & {
+  expected_signal?: string | null;
+  question_type?: string | null;
+  required_signals?: string[];
+  bonus_signals?: string[];
   answer: string | null;
+  answer_word_count?: number | null;
   question_source: string;
   provider_name?: string | null;
   model_name?: string | null;
@@ -36,6 +41,7 @@ export type InterviewTurn = InterviewQuestion & {
   answer_scorer_version?: string | null;
   answer_evidence?: {
     status?: string;
+    is_non_answer?: boolean;
     scores?: Record<string, number>;
     applicable_scores?: Record<string, number>;
     applicable_criteria?: string[];

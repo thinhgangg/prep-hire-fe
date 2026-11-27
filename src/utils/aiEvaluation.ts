@@ -148,6 +148,81 @@ const STRENGTH_SUMMARY_BY_KEY: Record<string, string> = {
   role_relevance: "Mức độ phù hợp cao và nhất quán với yêu cầu vị trí (JD)",
 };
 
+const EVASION_PHRASES: RegExp[] = [
+  /(không|khong|ko|k)\s*(nhớ|nho)(\s*(nữa|nua|rõ|ro|chi tiết|chi tiet))?/gi,
+  /(quên|quen)\s*(mất|mat|rồi|roi|hết|het)/gi,
+  /(chưa|chua)\s*(từng|tung)\s*(làm|lam|dùng|dung|sử dụng|su dung)/gi,
+];
+
+export function applySubstantiveEvidenceCalibration(
+  answerText: string,
+  rawScores: Record<string, number>,
+): {
+  scores: Record<string, number>;
+  hasMemoryEvasion: boolean;
+  evasionMatches: string[];
+} {
+  const cleaned = (answerText || "").trim();
+  if (!cleaned) {
+    return { scores: rawScores, hasMemoryEvasion: false, evasionMatches: [] };
+  }
+  const matches: string[] = [];
+  for (const pat of EVASION_PHRASES) {
+    const found = cleaned.match(pat);
+    if (found) matches.push(...found);
+  }
+  if (matches.length === 0) {
+    return { scores: rawScores, hasMemoryEvasion: false, evasionMatches: [] };
+  }
+
+  const concreteTech =
+    /\b(redux|zustand|context\s*api|mobx|recoil|usecontext|usereducer|websocket|redis|postgresql|graphql|rest\s*api|docker|jwt|oauth|microservice|index|b-tree|sharding|replication|flutter|swift|kotlin|react\s*native)\b/i.test(
+      cleaned,
+    );
+  const wordCount = cleaned.split(/\s+/).filter(Boolean).length;
+  if (concreteTech && wordCount >= 45 && matches.length === 1) {
+    return {
+      scores: rawScores,
+      hasMemoryEvasion: false,
+      evasionMatches: matches,
+    };
+  }
+
+  const penaltyFactor = matches.length >= 2 || wordCount < 45 ? 0.52 : 0.72;
+  const calibrated: Record<string, number> = { ...rawScores };
+  const contentKeys = [
+    "technical_correctness",
+    "expected_signal_coverage",
+    "reasoning_quality",
+    "evidence_quality",
+    "answer_relevance",
+  ];
+  for (const k of contentKeys) {
+    const cur = Number(calibrated[k] ?? 3.0);
+    calibrated[k] = Math.max(
+      1.2,
+      Math.round(cur * penaltyFactor * 1000) / 1000,
+    );
+  }
+  if (calibrated.clarity_conciseness !== undefined) {
+    calibrated.clarity_conciseness = Math.min(
+      Number(calibrated.clarity_conciseness),
+      2.6,
+    );
+  }
+  if (calibrated.consistency !== undefined) {
+    calibrated.consistency = Math.min(Number(calibrated.consistency), 2.8);
+  }
+  return {
+    scores: calibrated,
+    hasMemoryEvasion: true,
+    evasionMatches: Array.from(new Set(matches.map((m) => m.trim()))),
+  };
+}
+
+export const EXPORTED_COMPETENCY_SIGNALS = COMPETENCY_SIGNALS;
+export const EXPORTED_OVERALL_WEIGHTS = OVERALL_WEIGHTS;
+
 export function computeAiEvaluation(
   session: InterviewSession | null,
   history: any[] = [],
@@ -209,19 +284,24 @@ export function computeAiEvaluation(
     } else {
       validAnsweredCount++;
       const hasModelScores = t.scores && Object.keys(t.scores).length > 0;
+      const baseScores = hasModelScores
+        ? t.scores
+        : {
+            answer_relevance: 3.0,
+            technical_correctness: 3.0,
+            expected_signal_coverage: 3.0,
+            reasoning_quality: 3.0,
+            evidence_quality: 3.0,
+            clarity_conciseness: 3.0,
+            consistency: 3.0,
+          };
+      const { scores: calibratedScores } = applySubstantiveEvidenceCalibration(
+        ans,
+        baseScores,
+      );
       allProcessedTurns.push({
         turnIndex: t.turnIndex ?? idx,
-        scores: hasModelScores
-          ? t.scores
-          : {
-              answer_relevance: 3.0,
-              technical_correctness: 3.0,
-              expected_signal_coverage: 3.0,
-              reasoning_quality: 3.0,
-              evidence_quality: 3.0,
-              clarity_conciseness: 3.0,
-              consistency: 3.0,
-            },
+        scores: calibratedScores,
         isNonAnswer: false,
       });
     }
